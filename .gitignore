@@ -1,0 +1,5 @@
+# Dependency Directories
+node_modules/
+
+# Environment variables (optional, but recommended if you use a .env file locally)
+.env
