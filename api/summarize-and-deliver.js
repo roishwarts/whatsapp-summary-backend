@@ -30,7 +30,7 @@ async function callOpenAIChatAPI(messages, chatName) {
     const messageHistory = messages.map(msg => {
         const contentString = typeof msg === 'string' 
             ? msg 
-            : [${msg.time || ''}] ${msg.sender || 'Unknown'}: ${msg.text || ''};
+            : '[${msg.time || ''}] ${msg.sender || 'Unknown'}: ${msg.text || ''}';
             
         return { role: 'user', content: contentString };
     });
