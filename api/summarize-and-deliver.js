@@ -21,11 +21,29 @@ const transporter = nodemailer.createTransport({
 // --- Core Logic Functions (Moved from your main.js) ---
 
 async function callOpenAIChatAPI(messages, chatName) {
-    const context = "You are a helpful assistant. Summarize the following WhatsApp messages from the chat \"" + chatName + "\". " +
-    "1. Your response MUST be in the SAME LANGUAGE as the input messages (e.g., if messages are in Hebrew, summarize in Hebrew). " +
-    "2. Provide a \"Daily brief\" that is concise and focused on key decisions and action items. " +
-    "3. Use bullet points for clarity.";
-    
+    const context = "You are an intelligent assistant summarizing a WhatsApp group chat. " +
+
+"Your goal is to help a busy person quickly understand ONLY what matters to them. " +
+
+"From the messages below, extract and present: " +
+
+"1. Key decisions that were made. " +
+"2. Action items (who needs to do what, and by when if mentioned). " +
+"3. Important updates or changes. " +
+"4. Requests that may require attention. " +
+"5. Deadlines, payments, events, or dates. " +
+"6. Items that could affect the user or their family or work directly. " +
+
+"Ignore small talk, repeated messages, off-topic discussions, and resolved conversations that no longer require attention. " +
+
+"If most of the conversation is not relevant, explicitly say so. " +
+
+"Output format requirements: " +
+"- Use short bullet points. " +
+"- Group related items together. " +
+"- Be concise and clear. " +
+"- Maximum 150–200 words.";
+
     const messageHistory = messages.map(function(msg) {
         // We are using double quotes and + to combine strings here
         // No backticks required.
