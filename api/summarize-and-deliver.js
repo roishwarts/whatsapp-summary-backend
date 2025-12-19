@@ -21,23 +21,28 @@ const transporter = nodemailer.createTransport({
 // --- Core Logic Functions (Moved from your main.js) ---
 
 async function callOpenAIChatAPI(messages, chatName) {
-    // UPDATED PROMPT: Added language matching instructions
-    const context = `You are a helpful assistant. Summarize the following WhatsApp messages from the chat "${chatName}". 
-    1. Your response MUST be in the SAME LANGUAGE as the input messages (e.g., if messages are in Hebrew, summarize in Hebrew).
-    2. Provide a "Daily brief" that is concise and focused on key decisions and action items.
-    3. Use bullet points for clarity.`;
+    const context = "You are a helpful assistant. Summarize the following WhatsApp messages from the chat \"" + chatName + "\". " +
+    "1. Your response MUST be in the SAME LANGUAGE as the input messages (e.g., if messages are in Hebrew, summarize in Hebrew). " +
+    "2. Provide a \"Daily brief\" that is concise and focused on key decisions and action items. " +
+    "3. Use bullet points for clarity.";
     
-    const messageHistory = messages.map(msg => {
-        const contentString = typeof msg === 'string' 
+    const messageHistory = messages.map(function(msg) {
+        // We are using double quotes and + to combine strings here
+        // No backticks required.
+        var time = msg.time || "";
+        var sender = msg.sender || "Unknown";
+        var text = msg.text || "";
+        
+        var contentString = (typeof msg === 'string') 
             ? msg 
-            : '[${msg.time || ''}] ${msg.sender || 'Unknown'}: ${msg.text || ''}';
+            : "[" + time + "] " + sender + ": " + text;
             
-        return { role: 'user', content: contentString };
+        return { role: "user", content: contentString };
     });
 
     const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini', // UPDATED MODEL
-        messages: [{ role: 'system', content: context }, ...messageHistory],
+        model: "gpt-4o-mini",
+        messages: [{ role: "system", content: context }].concat(messageHistory),
         temperature: 0.5,
     });
     return completion.choices[0].message.content;
