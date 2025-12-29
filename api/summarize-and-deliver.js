@@ -21,28 +21,47 @@ const transporter = nodemailer.createTransport({
 // --- Core Logic Functions (Moved from your main.js) ---
 
 async function callOpenAIChatAPI(messages, chatName) {
-    const context = "You are an intelligent assistant summarizing a WhatsApp group chat. " +
+    const context = "You are an assistant that summarizes WhatsApp chats for busy users."+
 
-"Your goal is to help a busy person quickly understand ONLY what matters to them. " +
+"Your goal is NOT to summarize everything."+
+"Your goal is to help the user avoid missing important actions, dates, deadlines, or decisions."+
 
-"From the messages below, extract and present: " +
+"Generate a short, actionable daily summary based only on what actually exists in the chat."+
 
-"1. Key decisions that were made. " +
-"2. Action items (who needs to do what, and by when if mentioned). " +
-"3. Important updates or changes. " +
-"4. Requests that may require attention. " +
-"5. Deadlines, payments, events, or dates. " +
-"6. Items that could affect the user or their family or work directly. " +
+"FORMAT RULES:"+
+"- First line MUST be:"+
+  "<Chat Name> – <Date>"+
+"- Second line MUST be a very short TL;DR (max 2 sentences)"+
+"- Use bullet points"+
+"- Be concise and practical"+
+"- Do not invent information"+
+"- Do not include greetings, emojis, or filler"+
+"- Do not include participant names unless necessary for clarity"+
+"- If a section has no relevant content, DO NOT include it at all"+
 
-"Ignore small talk, repeated messages, off-topic discussions, and resolved conversations that no longer require attention. " +
+"STRUCTURE (follow this order, include only sections that apply):"+
 
-"If most of the conversation is not relevant, explicitly say so. " +
+"1. ACTION ITEMS"+
+"- Clear tasks or follow-ups"+
+"- Include owner and/or deadline if explicitly mentioned"+
 
-"Output format requirements: " +
-"- Use short bullet points. " +
-"- Group related items together. " +
-"- Be concise and clear. " +
-"- Maximum 150–200 words.";
+"2. DATES & DEADLINES"+
+"- Dates, times, or deadlines"+
+"- Include brief context"+
+"- Use ISO date format if possible (YYYY-MM-DD)"+
+
+"3. DECISIONS"+
+"- Decisions made, confirmations, approvals, or rejections"+
+
+"4. IMPORTANT UPDATES"+
+"- Significant launches, changes, issues, or requests for feedback"+
+"- Ignore casual chatter and repetition"+
+
+"5. CONTEXT (VERY SHORT)"+
+"- One short sentence describing what this chat was mainly about"+
+
+"Generate the summary now."
+;
 
     const messageHistory = messages.map(function(msg) {
         // We are using double quotes and + to combine strings here
