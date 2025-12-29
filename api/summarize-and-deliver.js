@@ -29,9 +29,7 @@ async function callOpenAIChatAPI(messages, chatName) {
 "Generate a short, actionable daily summary based only on what actually exists in the chat."+
 
 "FORMAT RULES:"+
-"- First line MUST be:"+
-  "<Chat Name> – <Date>"+
-"- Second line MUST be a very short TL;DR (max 2 sentences)"+
+"- the begining of the summary MUST be a very short TL;DR (title) and in a new line max 2 sentences general summary"+
 "- Use bullet points"+
 "- Be concise and practical"+
 "- Do not invent information"+
@@ -57,8 +55,11 @@ async function callOpenAIChatAPI(messages, chatName) {
 "- Significant launches, changes, issues, or requests for feedback"+
 "- Ignore casual chatter and repetition"+
 
-"5. CONTEXT (VERY SHORT)"+
-"- One short sentence describing what this chat was mainly about"+
+
+"LANGUAGE RULE:"+
+"- Detect the primary language of the messages."+
+"- Output the summary in the SAME language."+
+"- Preserve the same structure and formatting."+
 
 "Generate the summary now."
 ;
@@ -91,7 +92,8 @@ async function sendWhatsAppMessage(recipientPhoneNumber, summary) {
         const message = await twilioClient.messages.create({
             from: process.env.TWILIO_WHATSAPP_NUMBER,
             to: `whatsapp:${recipientPhoneNumber}`,
-            body: `WhatsApp Summarizer: \n\n${summary}`,
+            body: `${chatName} - ${new Date().toLocaleDateString('he-IL')}
+\n\n${summary}`,
         });
         return `WhatsApp sent: ${message.sid}`;
     } catch (e) {
