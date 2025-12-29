@@ -86,7 +86,7 @@ async function callOpenAIChatAPI(messages, chatName) {
     return completion.choices[0].message.content;
 }
 
-async function sendWhatsAppMessage(recipientPhoneNumber, summary) {
+async function sendWhatsAppMessage(recipientPhoneNumber, summary, chatName) {
     if (!recipientPhoneNumber) return 'WhatsApp Skipped: No number.';
     try {
         const message = await twilioClient.messages.create({
