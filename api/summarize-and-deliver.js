@@ -29,7 +29,7 @@ async function callOpenAIChatAPI(messages, chatName) {
 "Generate a short, actionable daily summary based only on what actually exists in the chat."+
 
 "FORMAT RULES:"+
-"- the begining of the summary MUST be a very short TL;DR (title) and in a new line max 2 sentences general summary"+
+"- the begining of the summary MUST be a very short TL;DR (without title), the length should be max 2 sentences of general summary."+
 "- Use bullet points"+
 "- Be concise and practical"+
 "- Do not invent information"+
@@ -37,7 +37,7 @@ async function callOpenAIChatAPI(messages, chatName) {
 "- Do not include participant names unless necessary for clarity"+
 "- If a section has no relevant content, DO NOT include it at all"+
 
-"STRUCTURE (follow this order, include only sections that apply):"+
+"STRUCTURE (follow this order, include only sections that apply, if one of the sections there is nothing to present so don't include it in the Summary):"+
 
 "1. ACTION ITEMS"+
 "- Clear tasks or follow-ups"+
@@ -54,6 +54,12 @@ async function callOpenAIChatAPI(messages, chatName) {
 "4. IMPORTANT UPDATES"+
 "- Significant launches, changes, issues, or requests for feedback"+
 "- Ignore casual chatter and repetition"+
+
+"If the detected language is HEBREW, use these headers:" +
+"  1. משימות" +
+"  2. תאריכים " +
+"  3. החלטות" +
+"  4. עדכונים חשובים" +
 
 
 "LANGUAGE RULE:"+
@@ -141,7 +147,8 @@ module.exports = async (req, res) => {
         // 2. Deliver Summary 
         const whatsappStatus = await sendWhatsAppMessage(
             recipientInfo.recipientPhoneNumber, 
-            summary
+            summary,
+			chatName
         );
         const emailStatus = await sendEmail(
             recipientInfo.recipientEmail, 
