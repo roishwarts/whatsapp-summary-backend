@@ -20,6 +20,89 @@ const transporter = nodemailer.createTransport({
 
 // --- Core Logic Functions (Moved from your main.js) ---
 
+// Date Detection Function
+function detectDatesInText(text) {
+    const dateRegex = /\b(\d{4}-\d{2}-\d{2})\b/g;
+    const dates = [];
+    let match;
+    
+    while ((match = dateRegex.exec(text)) !== null) {
+        const dateString = match[1];
+        const dateObj = new Date(dateString);
+        
+        // Validate that it's a valid date and not in a URL
+        if (!isNaN(dateObj.getTime()) && 
+            (match.index === 0 || text[match.index - 1] !== '/') && 
+            (match.index + 10 >= text.length || text[match.index + 10] !== '/')) {
+            dates.push({
+                dateString: dateString,
+                dateObj: dateObj,
+                index: match.index,
+                length: match[0].length
+            });
+        }
+    }
+    
+    return dates;
+}
+
+// Calendar Link Generation Function
+function generateCalendarLink(date, title, description) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    // Default to all-day event (start at 00:00, end at 23:59)
+    const startDate = `${year}${month}${day}T000000Z`;
+    const endDate = `${year}${month}${day}T235959Z`;
+    
+    // Encode parameters for URL
+    const encodedTitle = encodeURIComponent(title);
+    const encodedDescription = encodeURIComponent(description);
+    
+    // Generate Google Calendar link (universal format)
+    const calendarLink = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodedTitle}&dates=${startDate}/${endDate}&details=${encodedDescription}`;
+    
+    return calendarLink;
+}
+
+// Process Summary Text to Add Calendar Links
+function addCalendarLinksToSummary(summary, chatName) {
+    const dates = detectDatesInText(summary);
+    
+    if (dates.length === 0) {
+        return summary; // No dates found, return original summary
+    }
+    
+    // Process dates in reverse order to maintain correct indices when inserting
+    let enhancedSummary = summary;
+    const sortedDates = dates.sort((a, b) => b.index - a.index);
+    
+    for (const dateInfo of sortedDates) {
+        const { dateString, dateObj, index, length } = dateInfo;
+        
+        // Extract surrounding context (up to 50 characters before and after)
+        const contextStart = Math.max(0, index - 50);
+        const contextEnd = Math.min(summary.length, index + length + 50);
+        const context = summary.substring(contextStart, contextEnd).trim();
+        
+        // Generate calendar link
+        const eventTitle = `${chatName} - ${dateString}`;
+        const calendarLink = generateCalendarLink(dateObj, eventTitle, context);
+        
+        // Insert calendar link after the date
+        // Use plain URL for WhatsApp compatibility (WhatsApp automatically makes URLs clickable)
+        const beforeDate = enhancedSummary.substring(0, index + length);
+        const afterDate = enhancedSummary.substring(index + length);
+        const calendarEmoji = ' 📅';
+        const linkText = ` Calendar: ${calendarLink}`;
+        
+        enhancedSummary = beforeDate + calendarEmoji + linkText + afterDate;
+    }
+    
+    return enhancedSummary;
+}
+
 async function callOpenAIChatAPI(messages, chatName) {
     const context = "You are an assistant that summarizes WhatsApp chats for busy users."+
 
@@ -144,21 +227,24 @@ module.exports = async (req, res) => {
         // 1. Generate Summary
         const summary = await callOpenAIChatAPI(messages, chatName);
         
-        // 2. Deliver Summary 
+        // 2. Process Summary to Add Calendar Links
+        const enhancedSummary = addCalendarLinksToSummary(summary, chatName);
+        
+        // 3. Deliver Summary 
         const whatsappStatus = await sendWhatsAppMessage(
             recipientInfo.recipientPhoneNumber, 
-            summary,
+            enhancedSummary,
 			chatName
         );
         const emailStatus = await sendEmail(
             recipientInfo.recipientEmail, 
             chatName, 
-            summary
+            enhancedSummary
         );
         
-        // 3. Return the final summary and status back to the Electron App
+        // 4. Return the final summary and status back to the Electron App
         res.status(200).json({ 
-            summary: summary,
+            summary: enhancedSummary,
             deliveryStatus: { whatsapp: whatsappStatus, email: emailStatus }
         });
 
