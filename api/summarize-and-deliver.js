@@ -245,15 +245,17 @@ DECISIONS
 IMPORTANT UPDATES
 - Important update
 
-LANGUAGE RULE:
-- Detect the primary language of the messages
-- If English → use English headers
-- If Hebrew → use these headers:
-  - משימות
-  - תאריכים
-  - החלטות
-  - עדכונים חשובים
-- Do NOT mix languages
+LANGUAGE ENFORCEMENT (MANDATORY):
+- First, detect the primary language of the input messages.
+- IF the language is Hebrew:
+  - Output MUST be entirely in Hebrew.
+  - Use ONLY Hebrew section headers.
+  - Do NOT use any English words at all (including section titles).
+- IF the language is English:
+  - Output MUST be entirely in English.
+  - Use ONLY English section headers.
+- Mixing languages is NOT allowed.
+- Outputting English when the input is Hebrew is a critical error.
 
 CONTENT RULES:
 - Only include explicit, important information
