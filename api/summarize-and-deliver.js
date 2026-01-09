@@ -170,7 +170,7 @@ function addCalendarLinksToSummary(summary, chatName) {
 }
 
 async function callOpenAIChatAPI(messages, chatName) {
-    const context = You are an assistant that summarizes WhatsApp chats for busy users.
+    const context = `You are an assistant that summarizes WhatsApp chats for busy users.
 
 Your goal is NOT to summarize everything.
 Your goal is to help the user avoid missing important actions, dates, deadlines, or decisions.
@@ -265,7 +265,7 @@ CONTENT RULES:
 - important_updates / עדכונים_חשובים: only meaningful changes, issues, launches, or feedback requests
 - Ignore casual chatter, repetition, jokes, or opinions
 
-Generate the JSON now.
+Generate the JSON now.`
 ;
 
     const messageHistory = messages.map(function(msg) {
