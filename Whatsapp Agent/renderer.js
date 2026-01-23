@@ -809,7 +809,7 @@ function renderDashboard(currentSchedules) {
         </div>
         
         <div id="dashboard-controls" style="display: flex; gap: 10px; margin-bottom: 20px;">
-            <button id="add-chat-button" class="primary-button" style="flex: 1;">+ Add Chat</button>
+            <button id="add-chat-button" class="primary-button" style="flex: 1;">+ Add a scheduled daily brief</button>
             <button id="add-scheduled-message-button" class="primary-button" style="flex: 1;">+ Add a scheduled message</button>
         </div>
 
@@ -819,7 +819,7 @@ function renderDashboard(currentSchedules) {
         </div>
 
         <div id="schedule-list-container">
-            <h3>Scheduled Chats:</h3>
+            <h3>Schedule Daily Briefs:</h3>
             <ul id="schedules-ul"></ul>
         </div>
     `;
@@ -884,13 +884,11 @@ function renderDashboard(currentSchedules) {
     });
 
     document.getElementById('add-chat-button').addEventListener('click', () => {
-        window.currentFlow = 'chat-schedule';
         renderChatListLoadingState();
         window.uiApi.sendData('ui:request-chat-list'); 
     });
 
     document.getElementById('add-scheduled-message-button').addEventListener('click', () => {
-        window.currentFlow = 'scheduled-message';
         renderChatListLoadingState();
         window.uiApi.sendData('ui:request-chat-list-for-message'); 
     });
@@ -1023,13 +1021,6 @@ function initializeIPCListeners() {
 
     // 6. Receive the list of chats from the WhatsApp window (Triggers selection screen)
     window.uiApi.receiveCommand('main:render-chat-list', (chatList) => {
-        // Check if this is for scheduled message or regular chat selection
-        const isScheduledMessageFlow = window.currentFlow === 'scheduled-message';
-        if (isScheduledMessageFlow) {
-            window.currentFlow = null; // Reset flow
-            renderScheduledMessageChatSelection(chatList);
-            return;
-        }
         // Complete the progress bar animation
         if (window.chatListLoadingInterval) {
             clearInterval(window.chatListLoadingInterval);
@@ -1049,6 +1040,28 @@ function initializeIPCListeners() {
             availableChatNames = chatList;
             window.currentFlow = null; // Reset flow
             renderChatSelection(availableChatNames);
+        }, 300);
+    });
+
+    // 6.5. Receive the list of chats for scheduled message flow
+    window.uiApi.receiveCommand('main:render-chat-list-for-message', (chatList) => {
+        // Complete the progress bar animation
+        if (window.chatListLoadingInterval) {
+            clearInterval(window.chatListLoadingInterval);
+            window.chatListLoadingInterval = null;
+        }
+        const progressBar = document.getElementById('chat-list-progress-bar');
+        const loadingText = document.getElementById('chat-list-loading-text');
+        if (progressBar) {
+            progressBar.style.width = '100%';
+        }
+        if (loadingText) {
+            loadingText.textContent = 'Complete!';
+        }
+        
+        // Small delay to show completion, then render scheduled message chat selection
+        setTimeout(() => {
+            renderScheduledMessageChatSelection(chatList);
         }, 300);
     });
 

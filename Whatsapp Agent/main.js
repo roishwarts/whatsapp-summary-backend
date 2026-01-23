@@ -830,8 +830,13 @@ ipcMain.on('ui:edit-scheduled-message', (event, { index, message }) => {
 ipcMain.on('ui:request-chat-list-for-message', (event) => {
     if (!isWhatsAppWindowAvailable()) {
         console.error('[IPC] WhatsApp window not available for chat list request');
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list', []);
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', []);
         return;
+    }
+    
+    // Mark that the next chat list response should be for scheduled messages
+    if (whatsappWindow && whatsappWindow.webContents) {
+        whatsappWindow.webContents._isForScheduledMessage = true;
     }
     
     try {
@@ -840,7 +845,10 @@ ipcMain.on('ui:request-chat-list-for-message', (event) => {
         }
     } catch (error) {
         console.error('[IPC] Error requesting chat list for message:', error);
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list', []);
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', []);
+        if (whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents._isForScheduledMessage = false;
+        }
     }
 });
 
@@ -936,7 +944,17 @@ ipcMain.on('whatsapp:ready', (event) => {
 });
 
 ipcMain.on('whatsapp:response-chat-list', (event, list) => {
-    if (uiWindow) uiWindow.webContents.send('main:render-chat-list', list);
+    // Check if this response is for scheduled messages
+    const isForScheduledMessage = event.sender._isForScheduledMessage;
+    if (isForScheduledMessage) {
+        // Clear the flag
+        event.sender._isForScheduledMessage = false;
+        // Send to scheduled message handler
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', list);
+    } else {
+        // Regular chat list request
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list', list);
+    }
 });
 
 ipcMain.on('whatsapp:chat-opened', (event) => {
