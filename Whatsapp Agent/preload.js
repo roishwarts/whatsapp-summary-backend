@@ -564,6 +564,108 @@ function areSearchResultsVisible() {
     return chatRows.length > 0;
 }
 
+// Helper function to find the WhatsApp message input field
+function findMessageInputField() {
+    // WhatsApp Web uses a contenteditable div for message input
+    // Try multiple selectors to find it
+    const selectors = [
+        'div[contenteditable="true"][data-tab="10"]',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"].selectable-text',
+        'footer div[contenteditable="true"]',
+        'div[contenteditable="true"][data-lexical-editor="true"]',
+        'div[contenteditable="true"]'
+    ];
+    
+    for (const selector of selectors) {
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
+            // Check if it's in the message input area (usually in footer)
+            const footer = el.closest('footer') || el.closest('[role="textbox"]');
+            if (footer || el.getAttribute('data-tab') === '10') {
+                return el;
+            }
+        }
+    }
+    
+    // Fallback: find any contenteditable in the main chat area
+    const main = document.querySelector('main') || document.querySelector('[role="main"]');
+    if (main) {
+        const contenteditables = main.querySelectorAll('div[contenteditable="true"]');
+        // Usually the last one is the input
+        if (contenteditables.length > 0) {
+            return contenteditables[contenteditables.length - 1];
+        }
+    }
+    
+    return null;
+}
+
+// Helper function to send a message
+async function sendMessage(messageText) {
+    const inputField = findMessageInputField();
+    
+    if (!inputField) {
+        console.error('[Preload] Could not find message input field');
+        return false;
+    }
+    
+    try {
+        // Focus the input field
+        inputField.focus();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Clear any existing content
+        inputField.textContent = '';
+        inputField.innerText = '';
+        
+        // Type the message
+        typeIntoField(inputField, messageText);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // Trigger input event to ensure WhatsApp recognizes the text
+        const inputEvent = new InputEvent('input', { bubbles: true, cancelable: true, data: messageText });
+        inputField.dispatchEvent(inputEvent);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // Try to find and click the send button
+        const sendButton = inputField.closest('footer')?.querySelector('button[aria-label*="Send"], button[aria-label*="שלח"], span[data-icon="send"]')?.closest('button');
+        
+        if (sendButton) {
+            sendButton.click();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return true;
+        }
+        
+        // Fallback: Press Enter key
+        const enterEvent = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true
+        });
+        inputField.dispatchEvent(enterEvent);
+        
+        const enterEventUp = new KeyboardEvent('keyup', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true
+        });
+        inputField.dispatchEvent(enterEventUp);
+        
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return true;
+    } catch (error) {
+        console.error('[Preload] Error sending message:', error);
+        return false;
+    }
+}
+
 // Helper function to find a specific chat in the main chat list (not search results)
 function findChatInMainList(chatName, chatListContainer) {
     if (!chatListContainer) return null;
@@ -2086,6 +2188,29 @@ ipcRenderer.on('app:command-click-chat', (event, targetName) => {
 ipcRenderer.on('app:request-messages', async () => {
     const messages = await getMessages();
     ipcRenderer.send('whatsapp:response-messages', messages);
+});
+
+// Listener 4: Main asks to send a message
+ipcRenderer.on('app:command-send-message', async (event, { chatName, messageText }) => {
+    try {
+        // First, open the chat
+        await clickChat(chatName);
+        
+        // Wait a bit for chat to open
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Find the message input field and send the message
+        const success = await sendMessage(messageText);
+        
+        if (success) {
+            ipcRenderer.send('whatsapp:message-sent', { chatName, success: true });
+        } else {
+            ipcRenderer.send('whatsapp:message-sent', { chatName, success: false, error: 'Could not find message input field' });
+        }
+    } catch (error) {
+        console.error('[Preload] Error sending message:', error);
+        ipcRenderer.send('whatsapp:message-sent', { chatName, success: false, error: error.message });
+    }
 });
 
 

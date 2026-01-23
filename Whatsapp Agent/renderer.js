@@ -7,6 +7,7 @@ let availableChatNames = [];
 let selectedChatNames = new Set();
 let scheduledChats = [];           
 let existingScheduledChats = []; 
+let existingScheduledMessages = [];
 let isTestRunning = false; 
 
 
@@ -535,6 +536,250 @@ function editSingleChatSchedule(chatName) {
     });
 }
 
+// --- 6.5. UI Step - Scheduled Message Flow ---
+
+function renderScheduledMessageChatSelection(chatList) {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+    
+    selectedChatNames.clear();
+    
+    if (!chatList || chatList.length === 0) {
+        mainSetupDiv.innerHTML = `
+            <div class="status-box">
+                <h2>❌ No Chats Found</h2>
+                <p>
+                    Please ensure you are logged into WhatsApp Web in the secondary window. 
+                    If this is a new login, please wait for the chat list to fully load and try again.
+                </p>
+                
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button onclick="window.uiApi.sendData('ui:toggle-whatsapp-window')" class="secondary-button">Show WhatsApp Window</button>
+                    <button id="retry-chat-list" class="primary-button">Retry Finding Chats</button>
+                    <button id="back-to-dashboard-btn" class="secondary-button">Back to Dashboard</button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('retry-chat-list').addEventListener('click', () => {
+            renderChatListLoadingState();
+            window.uiApi.sendData('ui:request-chat-list-for-message'); 
+        });
+
+        document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
+            window.uiApi.sendData('ui:request-scheduled-messages');
+        });
+        
+        return;
+    }
+
+    mainSetupDiv.innerHTML = `
+        <div class="setup-header">
+            <h2>Choose to who you want to send the message</h2>
+            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+        </div>
+        <p>Click on the chat you want to send a scheduled message to.</p>
+        <div style="margin: 15px 0;">
+            <input type="text" id="chat-search-input" placeholder="🔍 Search chats..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+        </div>
+        <div id="chat-list-container" class="chat-selection-container"></div>
+        <button id="next-button" class="primary-button" disabled>Next: Configure when to send the message</button>
+    `;
+    
+    const container = document.getElementById('chat-list-container');
+    const nextButton = document.getElementById('next-button');
+    const searchInput = document.getElementById('chat-search-input');
+    
+    const allChats = [...chatList];
+    let selectedChatName = null;
+    
+    function renderFilteredChats(filterText = '') {
+        container.innerHTML = '';
+        const filterLower = filterText.toLowerCase().trim();
+        const filteredChats = filterText ? allChats.filter(name => name.toLowerCase().includes(filterLower)) : allChats;
+        
+        if (filteredChats.length === 0) {
+            container.innerHTML = '<p style="color: #666; padding: 20px; text-align: center;">No chats match your search.</p>';
+            return;
+        }
+        
+        filteredChats.forEach(name => {
+            const chatElement = document.createElement('button');
+            chatElement.id = `chat-btn-${name}`;
+            chatElement.className = 'chat-button';
+            chatElement.textContent = name;
+            
+            if (selectedChatName === name) {
+                chatElement.classList.add('selected');
+            }
+
+            chatElement.addEventListener('click', () => {
+                // Deselect previous selection
+                if (selectedChatName) {
+                    const prevButton = document.getElementById(`chat-btn-${selectedChatName}`);
+                    if (prevButton) prevButton.classList.remove('selected');
+                }
+                
+                // Select new chat
+                selectedChatName = name;
+                chatElement.classList.add('selected');
+                nextButton.disabled = false;
+            });
+            
+            container.appendChild(chatElement);
+        });
+    }
+    
+    renderFilteredChats();
+    
+    searchInput.addEventListener('input', (e) => {
+        renderFilteredChats(e.target.value);
+    });
+
+    nextButton.addEventListener('click', () => {
+        if (selectedChatName) {
+            renderScheduledMessageTimeSelection(selectedChatName);
+        } else {
+            alert('Please select a chat to send the message to.');
+        }
+    });
+    
+    document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
+        window.uiApi.sendData('ui:request-scheduled-messages');
+    });
+
+    window.uiApi.sendData('ui:auto-hide-whatsapp');
+}
+
+function renderScheduledMessageTimeSelection(chatName, existingDate = null, existingTime = null, existingMessage = null, editIndex = null) {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+
+    // Default to today's date and current time + 1 hour
+    const now = new Date();
+    const defaultDate = existingDate || now.toISOString().split('T')[0];
+    const defaultHour = existingTime ? existingTime.substring(0, 2) : String((now.getHours() + 1) % 24).padStart(2, '0');
+    const defaultMinute = existingTime ? existingTime.substring(3, 5) : String(now.getMinutes()).padStart(2, '0');
+    const defaultTime = existingTime || `${defaultHour}:${defaultMinute}`;
+
+    mainSetupDiv.innerHTML = `
+        <div class="setup-header">
+            <h2>Configure when to send the message</h2>
+            <button id="back-button" class="secondary-button">← Back</button>
+        </div>
+        <p>Select the date and time when you want to send the message to <strong>${chatName}</strong>.</p>
+        <div id="time-selection-container" style="margin: 20px 0;">
+            <div style="margin-bottom: 15px;">
+                <label for="message-date" style="display: block; margin-bottom: 5px; font-weight: bold;">Date:</label>
+                <input type="date" id="message-date" value="${defaultDate}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label for="message-time" style="display: block; margin-bottom: 5px; font-weight: bold;">Time:</label>
+                <input type="time" id="message-time" value="${defaultTime}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+            </div>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button id="back-button-bottom" class="secondary-button" style="flex: 1;">← Back</button>
+            <button id="next-button" class="primary-button" style="flex: 1;">Next</button>
+        </div>
+    `;
+
+    const dateInput = document.getElementById('message-date');
+    const timeInput = document.getElementById('message-time');
+    const nextButton = document.getElementById('next-button');
+    const backButton = document.getElementById('back-button');
+    const backButtonBottom = document.getElementById('back-button-bottom');
+
+    const handleNext = () => {
+        const selectedDate = dateInput.value;
+        const selectedTime = timeInput.value;
+        
+        if (!selectedDate || !selectedTime) {
+            alert('Please select both date and time.');
+            return;
+        }
+
+        // Validate that selected date/time is in the future
+        const selectedDateTime = new Date(`${selectedDate}T${selectedTime}`);
+        const now = new Date();
+        
+        if (selectedDateTime <= now) {
+            alert('Please select a date and time in the future.');
+            return;
+        }
+
+        renderScheduledMessageInput(chatName, selectedDate, selectedTime, existingMessage, editIndex);
+    };
+
+    nextButton.addEventListener('click', handleNext);
+    backButton.addEventListener('click', () => {
+        renderChatListLoadingState();
+        window.uiApi.sendData('ui:request-chat-list-for-message');
+    });
+    backButtonBottom.addEventListener('click', () => {
+        renderChatListLoadingState();
+        window.uiApi.sendData('ui:request-chat-list-for-message');
+    });
+}
+
+function renderScheduledMessageInput(chatName, date, time, existingMessage = null, editIndex = null) {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+
+    mainSetupDiv.innerHTML = `
+        <div class="setup-header">
+            <h2>Type your message</h2>
+            <button id="back-button" class="secondary-button">← Back</button>
+        </div>
+        <p>Enter the message you want to send to <strong>${chatName}</strong> on ${date} at ${time}.</p>
+        <div style="margin: 20px 0;">
+            <textarea id="message-text" placeholder="Type your message here..." style="width: 100%; min-height: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: inherit; resize: vertical;">${existingMessage || ''}</textarea>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button id="back-button-bottom" class="secondary-button" style="flex: 1;">← Back</button>
+            <button id="save-button" class="primary-button" style="flex: 1;">Save</button>
+        </div>
+    `;
+
+    const messageTextarea = document.getElementById('message-text');
+    const saveButton = document.getElementById('save-button');
+    const backButton = document.getElementById('back-button');
+    const backButtonBottom = document.getElementById('back-button-bottom');
+
+    const handleSave = () => {
+        const messageText = messageTextarea.value.trim();
+        
+        if (!messageText) {
+            alert('Please enter a message.');
+            return;
+        }
+
+        const scheduledMessage = {
+            chatName: chatName,
+            message: messageText,
+            date: date,
+            time: time,
+            sent: false
+        };
+
+        if (editIndex !== null) {
+            // Editing existing message
+            window.uiApi.sendData('ui:edit-scheduled-message', { index: editIndex, message: scheduledMessage });
+        } else {
+            // Creating new message
+            window.uiApi.sendData('ui:save-scheduled-message', scheduledMessage);
+        }
+    };
+
+    saveButton.addEventListener('click', handleSave);
+    backButton.addEventListener('click', () => {
+        renderScheduledMessageTimeSelection(chatName, date, time, existingMessage, editIndex);
+    });
+    backButtonBottom.addEventListener('click', () => {
+        renderScheduledMessageTimeSelection(chatName, date, time, existingMessage, editIndex);
+    });
+}
+
 
 // --- 7. UI Step - Dashboard (Final State) (FIXED Edit button listener) ---
 
@@ -565,6 +810,12 @@ function renderDashboard(currentSchedules) {
         
         <div id="dashboard-controls" style="display: flex; gap: 10px; margin-bottom: 20px;">
             <button id="add-chat-button" class="primary-button" style="flex: 1;">+ Add Chat</button>
+            <button id="add-scheduled-message-button" class="primary-button" style="flex: 1;">+ Add a scheduled message</button>
+        </div>
+
+        <div id="scheduled-messages-container" style="margin-bottom: 30px;">
+            <h3>Scheduled Messages:</h3>
+            <ul id="scheduled-messages-ul"></ul>
         </div>
 
         <div id="schedule-list-container">
@@ -575,6 +826,33 @@ function renderDashboard(currentSchedules) {
     
     // Update WhatsApp status indicator
     updateWhatsAppStatus(whatsappStatus);
+
+    // Populate scheduled messages list
+    const messagesUl = document.getElementById('scheduled-messages-ul');
+    if (existingScheduledMessages.length === 0) {
+        messagesUl.innerHTML = '<li><p class="status-message">No messages are currently scheduled.</p></li>';
+    } else {
+        messagesUl.innerHTML = '';
+        existingScheduledMessages.forEach((msg, index) => {
+            if (msg.sent) return; // Skip sent messages
+            const li = document.createElement('li');
+            const messagePreview = msg.message.length > 50 ? msg.message.substring(0, 50) + '...' : msg.message;
+            const dateTime = `${msg.date} at ${msg.time}`;
+            li.innerHTML = `
+                <div class="schedule-item-dashboard">
+                    <div style="flex: 1;">
+                        <strong>${msg.chatName}</strong> <span style="color: #666; font-weight: normal;">${dateTime}</span>
+                        <p style="color: #888; font-size: 12px; margin: 5px 0 0 0;">${messagePreview}</p>
+                    </div>
+                    <div style="display: flex; gap: 5px;">
+                        <button class="edit-message-button secondary-button" data-message-index="${index}" title="Edit message">✏️</button>
+                        <button class="delete-message-button secondary-button" data-message-index="${index}" title="Delete message">🗑️</button>
+                    </div>
+                </div>
+            `;
+            messagesUl.appendChild(li);
+        });
+    }
 
     // Populate schedules list
     const ul = document.getElementById('schedules-ul');
@@ -606,8 +884,15 @@ function renderDashboard(currentSchedules) {
     });
 
     document.getElementById('add-chat-button').addEventListener('click', () => {
+        window.currentFlow = 'chat-schedule';
         renderChatListLoadingState();
         window.uiApi.sendData('ui:request-chat-list'); 
+    });
+
+    document.getElementById('add-scheduled-message-button').addEventListener('click', () => {
+        window.currentFlow = 'scheduled-message';
+        renderChatListLoadingState();
+        window.uiApi.sendData('ui:request-chat-list-for-message'); 
     });
     
     document.getElementById('settings-icon-button').addEventListener('click', () => {
@@ -631,6 +916,27 @@ function renderDashboard(currentSchedules) {
                 const updatedSchedules = existingScheduledChats.filter(chat => chat.name !== chatName);
                 window.uiApi.sendData('ui:save-schedules', updatedSchedules);
                 renderDashboard(updatedSchedules);
+            }
+        });
+    });
+
+    // Add edit/delete handlers for scheduled messages
+    document.querySelectorAll('.edit-message-button').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const index = parseInt(e.currentTarget.dataset.messageIndex);
+            const message = existingScheduledMessages[index];
+            if (message) {
+                renderScheduledMessageTimeSelection(message.chatName, message.date, message.time, message.message, index);
+            }
+        });
+    });
+
+    document.querySelectorAll('.delete-message-button').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const index = parseInt(e.currentTarget.dataset.messageIndex);
+            const message = existingScheduledMessages[index];
+            if (message && confirm(`Are you sure you want to delete the scheduled message to "${message.chatName}"?`)) {
+                window.uiApi.sendData('ui:delete-scheduled-message', index);
             }
         });
     });
@@ -704,11 +1010,26 @@ function initializeIPCListeners() {
     // 5. Receive the existing scheduled chats (for dashboard rendering)
     window.uiApi.receiveCommand('main:render-scheduled-chats', (chats) => {
         existingScheduledChats = chats;
-        renderDashboard(chats);
+        // Also request scheduled messages to render both
+        window.uiApi.sendData('ui:request-scheduled-messages');
+    });
+    
+    // 5.5. Receive the existing scheduled messages (for dashboard rendering)
+    window.uiApi.receiveCommand('main:render-scheduled-messages', (messages) => {
+        existingScheduledMessages = messages || [];
+        // Re-render dashboard with both chats and messages
+        renderDashboard(existingScheduledChats);
     });
 
     // 6. Receive the list of chats from the WhatsApp window (Triggers selection screen)
     window.uiApi.receiveCommand('main:render-chat-list', (chatList) => {
+        // Check if this is for scheduled message or regular chat selection
+        const isScheduledMessageFlow = window.currentFlow === 'scheduled-message';
+        if (isScheduledMessageFlow) {
+            window.currentFlow = null; // Reset flow
+            renderScheduledMessageChatSelection(chatList);
+            return;
+        }
         // Complete the progress bar animation
         if (window.chatListLoadingInterval) {
             clearInterval(window.chatListLoadingInterval);
@@ -726,6 +1047,7 @@ function initializeIPCListeners() {
         // Small delay to show completion, then render chat selection
         setTimeout(() => {
             availableChatNames = chatList;
+            window.currentFlow = null; // Reset flow
             renderChatSelection(availableChatNames);
         }, 300);
     });
@@ -778,5 +1100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (window.uiApi) {
         window.uiApi.sendData('ui:request-setup-complete-status');
+        // Also request scheduled messages on load
+        window.uiApi.sendData('ui:request-scheduled-messages');
     }
 });

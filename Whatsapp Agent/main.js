@@ -31,7 +31,8 @@ const store = new Store({
             emailUser: null,
             emailPass: null,
         },
-        scheduledChats: [] 
+        scheduledChats: [],
+        scheduledMessages: []
     }
 });
 
@@ -540,6 +541,21 @@ function isTimeToRun(chat) {
     return timeMatch; 
 }
 
+function isTimeToSendMessage(scheduledMessage) {
+    if (!scheduledMessage.date || !scheduledMessage.time || scheduledMessage.sent) return false;
+    
+    const now = new Date();
+    const scheduledDate = new Date(`${scheduledMessage.date}T${scheduledMessage.time}`);
+    
+    // Check if date and time match (within the same minute)
+    const dateMatch = now.toISOString().split('T')[0] === scheduledMessage.date;
+    const scheduledHour = parseInt(scheduledMessage.time.substring(0, 2), 10);
+    const scheduledMinute = parseInt(scheduledMessage.time.substring(3, 5), 10);
+    const timeMatch = (now.getHours() === scheduledHour && now.getMinutes() === scheduledMinute);
+    
+    return dateMatch && timeMatch;
+}
+
 function startAutomationLoop() {
     if (automationInterval) clearInterval(automationInterval); 
     automationInterval = setInterval(async () => {
@@ -555,6 +571,15 @@ function startAutomationLoop() {
             }
             const chatsToRun = store.get('scheduledChats').filter(chat => isTimeToRun(chat));
             if (chatsToRun.length > 0) await processChatQueue(chatsToRun);
+            
+            // Check scheduled messages
+            const messages = store.get('scheduledMessages') || [];
+            const messagesToSend = messages.filter(msg => isTimeToSendMessage(msg));
+            if (messagesToSend.length > 0) {
+                for (const message of messagesToSend) {
+                    await processScheduledMessage(message);
+                }
+            }
         } catch (error) {
             console.error('[Automation] Error in automation loop:', error);
         }
@@ -596,6 +621,45 @@ async function processChatQueue(chats) {
         console.error('[Automation] Error in processChatQueue:', error);
         chatQueue = [];
         currentlyRunningChat = null;
+    }
+}
+
+async function processScheduledMessage(message) {
+    try {
+        // Ensure window exists before processing
+        const windowReady = await ensureWhatsAppWindowExists();
+        if (!windowReady) {
+            console.log('[Automation] WhatsApp window not available for scheduled message');
+            return;
+        }
+        
+        if (isUIWindowAvailable()) {
+            try {
+                uiWindow.webContents.send('main:automation-status', { message: `Sending scheduled message to ${message.chatName}...` });
+            } catch (e) {
+                console.error('[Automation] Error sending status:', e);
+            }
+        }
+        
+        // Store the message being sent for later reference
+        const messageToSend = { ...message };
+        
+        // Send command to WhatsApp window to send the message
+        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents.send('app:command-send-message', {
+                chatName: message.chatName,
+                messageText: message.message
+            });
+            
+            // Store reference for the response handler
+            if (!whatsappWindow._pendingMessage) {
+                whatsappWindow._pendingMessage = messageToSend;
+            }
+        } else {
+            throw new Error('Window not available at send time');
+        }
+    } catch (error) {
+        console.error('[Automation] Error in processScheduledMessage:', error);
     }
 }
 
@@ -727,6 +791,59 @@ ipcMain.on('ui:request-scheduled-chats', (event) => {
     event.sender.send('main:render-scheduled-chats', store.get('scheduledChats'));
 });
 
+ipcMain.on('ui:save-scheduled-message', (event, message) => {
+    const messages = store.get('scheduledMessages') || [];
+    messages.push(message);
+    store.set('scheduledMessages', messages);
+    if (!automationInterval) startAutomationLoop();
+    // Send updated list back to UI
+    if (uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages);
+});
+
+ipcMain.on('ui:request-scheduled-messages', (event) => {
+    const messages = store.get('scheduledMessages') || [];
+    // Filter out sent messages before sending
+    const pendingMessages = messages.filter(msg => !msg.sent);
+    event.sender.send('main:render-scheduled-messages', pendingMessages);
+});
+
+ipcMain.on('ui:delete-scheduled-message', (event, index) => {
+    const messages = store.get('scheduledMessages') || [];
+    if (index >= 0 && index < messages.length) {
+        messages.splice(index, 1);
+        store.set('scheduledMessages', messages);
+        // Send updated list back to UI
+        if (uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(msg => !msg.sent));
+    }
+});
+
+ipcMain.on('ui:edit-scheduled-message', (event, { index, message }) => {
+    const messages = store.get('scheduledMessages') || [];
+    if (index >= 0 && index < messages.length) {
+        messages[index] = message;
+        store.set('scheduledMessages', messages);
+        // Send updated list back to UI
+        if (uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(msg => !msg.sent));
+    }
+});
+
+ipcMain.on('ui:request-chat-list-for-message', (event) => {
+    if (!isWhatsAppWindowAvailable()) {
+        console.error('[IPC] WhatsApp window not available for chat list request');
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list', []);
+        return;
+    }
+    
+    try {
+        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents.send('app:request-chat-list');
+        }
+    } catch (error) {
+        console.error('[IPC] Error requesting chat list for message:', error);
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list', []);
+    }
+});
+
 ipcMain.on('ui:toggle-whatsapp-window', async () => {
     const windowReady = await ensureWhatsAppWindowExists();
     if (!windowReady || !isWhatsAppWindowAvailable()) {
@@ -835,6 +952,46 @@ ipcMain.on('ui:request-delivery-settings', (event) => {
     const settings = store.get('globalSettings');
     console.log('[Store] Sending saved settings to UI:', settings.recipientPhoneNumber);
     event.sender.send('main:render-delivery-settings', settings);
+});
+
+ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) => {
+    if (success) {
+        console.log(`[Automation] Scheduled message sent successfully to ${chatName}`);
+        
+        // Mark message as sent and remove from store
+        // Find messages for this chat that haven't been sent yet
+        // Since we process one at a time, we can safely remove the first unsent message for this chat
+        const messages = store.get('scheduledMessages') || [];
+        let messageRemoved = false;
+        const updatedMessages = messages.filter(msg => {
+            // Remove the first unsent message matching this chatName
+            if (!messageRemoved && msg.chatName === chatName && msg.sent === false) {
+                messageRemoved = true;
+                return false; // Remove this message
+            }
+            return true; // Keep all other messages
+        });
+        store.set('scheduledMessages', updatedMessages);
+        
+        // Update UI
+        if (isUIWindowAvailable()) {
+            try {
+                uiWindow.webContents.send('main:automation-status', { message: `Scheduled message sent to ${chatName}` });
+                uiWindow.webContents.send('main:render-scheduled-messages', updatedMessages.filter(msg => !msg.sent));
+            } catch (e) {
+                console.error('[Automation] Error sending status:', e);
+            }
+        }
+    } else {
+        console.error(`[Automation] Failed to send scheduled message to ${chatName}:`, error);
+        if (isUIWindowAvailable()) {
+            try {
+                uiWindow.webContents.send('main:automation-status', { message: `Failed to send message to ${chatName}: ${error}` });
+            } catch (e) {
+                console.error('[Automation] Error sending status:', e);
+            }
+        }
+    }
 });
 
 ipcMain.on('whatsapp:response-messages', async (event, messages) => {
