@@ -79,7 +79,7 @@ async function callVercelBackend(chatName, messages) {
         }
     };
 
-    console.log('[Network] Sending to Vercel for ${chatName}. Target: ${payload.recipientInfo.recipientPhoneNumber}');
+    console.log(`[Network] Sending to Vercel for ${chatName}. Target: ${payload.recipientInfo.recipientPhoneNumber}`);
 
     try {
         const response = await fetch(VERCEL_URL, {

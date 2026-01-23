@@ -169,6 +169,13 @@ function addCalendarLinksToSummary(summary, chatName) {
     return { plainText: enhancedSummaryPlain, html: enhancedSummaryHtml };
 }
 
+// Normalize spacing in summary: ensure only one blank line between sections
+function normalizeSummarySpacing(summary) {
+    // Replace 3 or more consecutive newlines with just 2 newlines (one blank line)
+    // This ensures consistent spacing between sections
+    return summary.replace(/\n{3,}/g, '\n\n');
+}
+
 async function callOpenAIChatAPI(messages, chatName) {
     const context = "You are an assistant that summarizes WhatsApp chats for busy users."+
 
@@ -256,11 +263,13 @@ async function callOpenAIChatAPI(messages, chatName) {
 async function sendWhatsAppMessage(recipientPhoneNumber, summary, chatName) {
     if (!recipientPhoneNumber) return 'WhatsApp Skipped: No number.';
     try {
+        // Normalize spacing in summary (one blank line between sections)
+        const normalizedSummary = normalizeSummarySpacing(summary);
         const message = await twilioClient.messages.create({
             from: process.env.TWILIO_WHATSAPP_NUMBER,
             to: `whatsapp:${recipientPhoneNumber}`,
             body: `${chatName} - ${new Date().toLocaleDateString('he-IL')}
-\n\n${summary}`,
+\n${normalizedSummary}`,
         });
         return `WhatsApp sent: ${message.sid}`;
     } catch (e) {
@@ -311,6 +320,10 @@ module.exports = async (req, res) => {
         
         // 2. Process Summary to Add Calendar Links (returns both plain text and HTML)
         const enhancedSummaries = addCalendarLinksToSummary(summary, chatName);
+        
+        // Normalize spacing in the enhanced summaries
+        enhancedSummaries.plainText = normalizeSummarySpacing(enhancedSummaries.plainText);
+        enhancedSummaries.html = normalizeSummarySpacing(enhancedSummaries.html);
         
         // 3. Deliver Summary 
         const whatsappStatus = await sendWhatsAppMessage(

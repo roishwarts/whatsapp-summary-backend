@@ -1549,6 +1549,15 @@ function extractMessageData(el, todayDDMM) {
     const prefix = el.getAttribute('data-pre-plain-text') || '';
     let messageText = fullText.replace(prefix, '').replace(/\u200e/g, '').trim();
     
+    // Remove trailing time that might be included in the text content
+    // Extract time portion from timestamp (e.g., "19:33" from "19:33, 1/23/2026")
+    const timeMatch = rawTimestamp.match(/^(\d{1,2}:\d{2})/);
+    if (timeMatch) {
+        const timePattern = timeMatch[1]; // e.g., "19:33"
+        // Remove trailing time pattern (with optional whitespace before it)
+        messageText = messageText.replace(new RegExp(timePattern.replace(':', '\\:') + '\\s*$'), '').trim();
+    }
+    
     if (!messageText) return null;
     
     return {
