@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WhatsApp Summarizer Settings</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+
+        h2, h3 {
+            color: #128c7e;
+            border-bottom: 2px solid #eceff1;
+            padding-bottom: 5px;
+            margin-top: 20px;
+        }
+        
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+            margin-top: 10px;
+        }
+
+        .primary-button {
+            background-color: #075e54;
+            color: white;
+            font-weight: bold;
+        }
+        .primary-button:hover:not(:disabled) {
+            background-color: #054a41;
+        }
+        .primary-button:disabled {
+            background-color: #aeb8b3;
+            cursor: not-allowed;
+        }
+
+        .secondary-button {
+            background-color: #eceff1;
+            color: #333;
+        }
+        .secondary-button:hover:not(:disabled) {
+            background-color: #dadfe1;
+        }
+        
+        input[type="text"], input[type="password"], input[type="number"], input[type="time"] {
+            width: 90%;
+            padding: 10px;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box; 
+        }
+
+        select {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        
+        .status-box {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .small-text {
+            font-size: 12px;
+            color: #777;
+            margin-top: -5px;
+            margin-bottom: 15px;
+        }
+
+        .chat-selection-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .chat-button {
+            background-color: #f0f0f0;
+            color: #333;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background-color 0.1s;
+            flex-grow: 0;
+            white-space: nowrap;
+        }
+
+        .chat-button.selected {
+            background-color: #128c7e;
+            color: white;
+            border-color: #075e54;
+        }
+
+        .setup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .schedule-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px dashed #eee;
+        }
+        
+        .schedule-item h4 {
+            margin: 0;
+            font-weight: normal;
+        }
+        
+        .schedule-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .schedule-controls input, .schedule-controls select {
+            width: auto;
+            padding: 8px;
+            margin: 0;
+        }
+
+        #dashboard-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        #dashboard-controls button {
+            flex: 1;
+        }
+
+        #schedules-ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        .schedule-item-dashboard {
+            padding: 5px 0;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .schedule-item-dashboard strong {
+            color: #075e54;
+        }
+        
+        .schedule-item-dashboard > div:last-child {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .small-text.last-run {
+            color: #999;
+            font-size: 11px;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        
+        .results-container {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 5px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+        }
+        .summary-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .summary-item h4 {
+            margin-top: 0;
+            color: #128c7e;
+        }
+        .summary-meta {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+        .status-message {
+            color: #666;
+            font-style: italic;
+        }
+        
+        .progress-bar-container {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #128c7e, #25d366);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+            animation: progress-animation 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes progress-animation {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+        .loading-text {
+            text-align: center;
+            color: #666;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
+        hr {
+            border: none;
+            border-top: 1px solid #eceff1;
+        }
+        
+        .whatsapp-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 8px;
+            background-color: white;
+            border-radius: 6px;
+            font-size: 12px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            height: 28px;
+            box-sizing: border-box;
+            line-height: 1;
+        }
+        
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .status-dot.connecting {
+            background-color: #ffa500;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        .status-dot.connected {
+            background-color: #25d366;
+        }
+        
+        .status-dot.disconnected {
+            background-color: #dc3545;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .status-loader {
+            width: 10px;
+            height: 10px;
+            border: 2px solid #e0e0e0;
+            border-top-color: #128c7e;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        
+        .dashboard-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .settings-icon {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 5px;
+            color: #128c7e;
+            transition: transform 0.2s;
+        }
+        
+        .settings-icon:hover {
+            transform: scale(1.1);
+        }
+        
+        .header-button {
+            padding: 6px 12px;
+            font-size: 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background-color: #eceff1;
+            color: #333;
+            transition: background-color 0.2s;
+            height: 28px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            line-height: 1;
+        }
+        
+        .header-button:hover {
+            background-color: #dadfe1;
+        }
+        
+        .edit-chat-button, .delete-chat-button {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            border-radius: 6px;
+        }
+        
+        .settings-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="main-setup-div">
+        </div>
+
+    <template id="delivery-setup-template">
+        <div class="status-box">
+            <h2>Configure Delivery Methods</h2>
+            <p>Set up at least one method to receive the summaries.</p>
+
+            <h3>💬 WhatsApp (via Twilio)</h3>
+            <p class="small-text">
+                Twilio will send the summary to your recipient number.
+                Enter the WhatsApp-enabled number Twilio provides (e.g., `+14155238886`).
+                <a href="https://www.twilio.com/docs/api/credentials" target="_blank">Where do I find my Twilio credentials?</a>
+            </p>
+            <input type="text" id="twilio-sid" placeholder="Twilio Account SID (AC...)" />
+            <input type="password" id="twilio-token" placeholder="Twilio Auth Token" />
+            <input type="text" id="twilio-whatsapp-number" placeholder="Twilio Number (e.g., +14155238886)" />
+            <input type="text" id="recipient-phone-number" placeholder="Your Recipient Phone Number (+1234567890)" />
+
+            <hr style="margin: 20px 0;">
+
+            <h3>📧 Email (via SMTP)</h3>
+            <p class="small-text">
+                Requires SMTP credentials (e.g., Gmail App Password). Leave blank to disable.
+                <a href="https://nodemailer.com/smtp/" target="_blank">How do I get my SMTP credentials?</a> </p>
+            <input type="text" id="recipient-email" placeholder="Your Recipient Email Address" />
+            <input type="text" id="email-sender" placeholder="Sender Email Address (optional)" />
+            <input type="text" id="email-host" placeholder="SMTP Host (e.g., smtp.gmail.com)" />
+            <input type="number" id="email-port" placeholder="SMTP Port (e.g., 587 or 465)" value="587" />
+            <input type="text" id="email-user" placeholder="SMTP Username (Your full email address)" />
+            <input type="password" id="email-pass" placeholder="SMTP Password (e.g., App Password)" />
+
+            <div id="delivery-status-message" class="status-message" style="margin-top: 10px; color: red;"></div>
+
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="save-delivery-settings-button" class="primary-button" style="flex: 2;">Save Settings and Continue</button>
+                <button id="test-delivery-button" class="secondary-button" style="flex: 1;">Test Delivery</button>
+            </div>
+        </div>
+    </template>
+
+    <template id="api-key-setup-template">
+        <div class="status-box">
+            <h2> OpenAI API Key Required</h2>
+            <p>
+                To enable summarization, please enter your OpenAI API key. 
+                It will be stored locally and securely on this computer.
+            </p>
+            <input type="password" id="api-key-input" placeholder="Enter your OpenAI API Key (sk-...)">
+            <button id="save-api-key-button" class="primary-button" disabled>Save Key and Continue</button>
+            <p class="small-text">
+                <a href="https://platform.openai.com/api-keys" target="_blank">Where do I find my API key?</a>
+            </p>
+        </div>
+    </template>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
