@@ -1,37 +1,41 @@
-// Twilio Webhook Endpoint
-// Handles incoming WhatsApp messages from Twilio
+// Twilio → Pusher bridge webhook
+// Receives incoming WhatsApp messages from Twilio and immediately forwards them to Pusher
+
+const Pusher = require("pusher");
+
+// Initialize Pusher (values come from Env Variables on Vercel)
+const pusher = new Pusher({
+    appId: process.env.PUSHER_APP_ID,
+    key: process.env.PUSHER_KEY,
+    secret: process.env.PUSHER_SECRET,
+    cluster: process.env.PUSHER_CLUSTER,
+    useTLS: true
+});
+
 module.exports = async (req, res) => {
-    // Only accept POST requests
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
+    // Twilio sends POST requests
+    if (req.method !== "POST") {
+        return res.status(405).send("Method Not Allowed");
     }
 
     try {
-        // 1. Parse POST: extract From (WhatsApp number) and Body (message text)
-        const from = req.body.From || req.body.from;
-        const body = String(req.body.Body ?? req.body.body ?? '').trim();
+        const incomingMsg = req.body.Body; // WhatsApp message text
+        const from = req.body.From;        // Sender (your number)
 
-        // 2. Intent: "summary" if body contains "summary" (case-insensitive), otherwise "question"
-        const intent = /summary/i.test(body) ? 'summary' : 'question';
+        console.log(`[Twilio Webhook] Message received: ${incomingMsg}`);
 
-        // 3. Extract target group via "for <group>" or "עם <group>"; save as group_id
-        let group_id = null;
-        const forMatch = body.match(/\bfor\s+([^\s]+)/i);
-        const imMatch = body.match(/עם\s+([^\s]+)/);
-        if (forMatch) group_id = forMatch[1].trim();
-        else if (imMatch) group_id = imMatch[1].trim();
+        // Send to Pusher – event the Electron app will listen to
+        await pusher.trigger("whatsapp-channel", "new-command", {
+            message: incomingMsg,
+            sender: from,
+            time: new Date().toLocaleTimeString()
+        });
 
-        console.log('=== Twilio Webhook Received ===');
-        console.log('From:', from);
-        console.log('Body:', body);
-        console.log('Intent:', intent);
-        console.log('group_id:', group_id);
-        console.log('==============================');
-
-        // 4. Return 200 "ok" after processing
-        return res.status(200).send('ok');
+        // Return empty TwiML so Twilio is satisfied
+        res.setHeader("Content-Type", "text/xml");
+        return res.status(200).send("<Response></Response>");
     } catch (error) {
-        console.error('Error processing Twilio webhook:', error);
-        res.status(500).json({ error: 'Internal Server Error' });
+        console.error("Error in Twilio Webhook:", error);
+        return res.status(500).send("Internal Server Error");
     }
 };
