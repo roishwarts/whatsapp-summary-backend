@@ -271,10 +271,10 @@ function renderChatSelection(chatList) {
 
     mainSetupDiv.innerHTML = `
         <div class="setup-header">
-            <h2>Select Chats to Summarize</h2>
+            <h2>Select Chats for Daily Brief</h2>
             ${isSetupComplete ? '<button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>' : ''}
         </div>
-        <p>Click on the chats you want to schedule for summarization. Selected chats have a green background. Unselecting a chat will remove its schedule.</p>
+        <p>Click on the chats you want to schedule for daily brief. Selected chats have a green background. Unselecting a chat will remove its schedule.</p>
         <div style="margin: 15px 0;">
             <input type="text" id="chat-search-input" placeholder="🔍 Search chats..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
         </div>
@@ -373,8 +373,11 @@ function renderScheduling(chatsToSchedule) {
     scheduledChats.sort((a, b) => a.name.localeCompare(b.name));
 
     mainSetupDiv.innerHTML = `
-        <h2>Set Summarization Schedules</h2>
-        <p>Set the time for the daily summary to be generated for each chat.</p>
+        <div class="setup-header">
+            <h2>Set Daily Brief Schedules</h2>
+            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+        </div>
+        <p>Set the time for the daily brief to be generated for each chat.</p>
         <div id="schedule-container"></div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button id="back-button" class="secondary-button" style="flex: 1;">← Back to Chat Selection</button>
@@ -432,6 +435,14 @@ function renderScheduling(chatsToSchedule) {
         renderChatSelection(availableChatNames);
     });
 
+    // Add back to dashboard button handler
+    const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
+    if (backToDashboardBtn) {
+        backToDashboardBtn.addEventListener('click', () => {
+            window.uiApi.sendData('ui:request-scheduled-chats');
+        });
+    }
+
     document.getElementById('save-schedules-button').addEventListener('click', () => {
         // Filter out any chats that were unselected in the previous step (i.e., those not in existingScheduledChats)
         // Ensure all chats have frequency set to 'daily'
@@ -462,7 +473,7 @@ function editSingleChatSchedule(chatName) {
 
     mainSetupDiv.innerHTML = `
         <h2>✏️ Edit Schedule for: ${chatName}</h2>
-        <p>Adjust the time for the daily summary for this chat.</p>
+        <p>Adjust the time for the daily brief for this chat.</p>
         <div id="schedule-container"></div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button id="back-button" class="secondary-button" style="flex: 1;">← Back to Dashboard</button>
@@ -665,7 +676,7 @@ function renderScheduledMessageTimeSelection(chatName, existingDate = null, exis
     mainSetupDiv.innerHTML = `
         <div class="setup-header">
             <h2>Configure when to send the message</h2>
-            <button id="back-button" class="secondary-button">← Back</button>
+            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
         </div>
         <p>Select the date and time when you want to send the message to <strong>${chatName}</strong>.</p>
         <div id="time-selection-container" style="margin: 20px 0;">
@@ -687,7 +698,6 @@ function renderScheduledMessageTimeSelection(chatName, existingDate = null, exis
     const dateInput = document.getElementById('message-date');
     const timeInput = document.getElementById('message-time');
     const nextButton = document.getElementById('next-button');
-    const backButton = document.getElementById('back-button');
     const backButtonBottom = document.getElementById('back-button-bottom');
 
     const handleNext = () => {
@@ -712,14 +722,21 @@ function renderScheduledMessageTimeSelection(chatName, existingDate = null, exis
     };
 
     nextButton.addEventListener('click', handleNext);
-    backButton.addEventListener('click', () => {
-        renderChatListLoadingState();
-        window.uiApi.sendData('ui:request-chat-list-for-message');
-    });
+    
+    // Back button - go to previous step (chat selection)
     backButtonBottom.addEventListener('click', () => {
         renderChatListLoadingState();
         window.uiApi.sendData('ui:request-chat-list-for-message');
     });
+
+    // Back to dashboard button handler
+    const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
+    if (backToDashboardBtn) {
+        backToDashboardBtn.addEventListener('click', () => {
+            // Request both scheduled chats and messages to render full dashboard
+            window.uiApi.sendData('ui:request-scheduled-chats');
+        });
+    }
 }
 
 function renderScheduledMessageInput(chatName, date, time, existingMessage = null, editIndex = null) {
@@ -729,7 +746,7 @@ function renderScheduledMessageInput(chatName, date, time, existingMessage = nul
     mainSetupDiv.innerHTML = `
         <div class="setup-header">
             <h2>Type your message</h2>
-            <button id="back-button" class="secondary-button">← Back</button>
+            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
         </div>
         <p>Enter the message you want to send to <strong>${chatName}</strong> on ${date} at ${time}.</p>
         <div style="margin: 20px 0;">
@@ -743,7 +760,6 @@ function renderScheduledMessageInput(chatName, date, time, existingMessage = nul
 
     const messageTextarea = document.getElementById('message-text');
     const saveButton = document.getElementById('save-button');
-    const backButton = document.getElementById('back-button');
     const backButtonBottom = document.getElementById('back-button-bottom');
 
     const handleSave = () => {
@@ -769,15 +785,28 @@ function renderScheduledMessageInput(chatName, date, time, existingMessage = nul
             // Creating new message
             window.uiApi.sendData('ui:save-scheduled-message', scheduledMessage);
         }
+        
+        // Return to dashboard after saving
+        setTimeout(() => {
+            window.uiApi.sendData('ui:request-scheduled-messages');
+        }, 100);
     };
 
     saveButton.addEventListener('click', handleSave);
-    backButton.addEventListener('click', () => {
-        renderScheduledMessageTimeSelection(chatName, date, time, existingMessage, editIndex);
-    });
+    
+    // Back button - go to previous step (time selection)
     backButtonBottom.addEventListener('click', () => {
         renderScheduledMessageTimeSelection(chatName, date, time, existingMessage, editIndex);
     });
+
+    // Back to dashboard button handler
+    const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
+    if (backToDashboardBtn) {
+        backToDashboardBtn.addEventListener('click', () => {
+            // Request both scheduled chats and messages to render full dashboard
+            window.uiApi.sendData('ui:request-scheduled-chats');
+        });
+    }
 }
 
 
@@ -795,8 +824,7 @@ function renderDashboard(currentSchedules) {
     mainSetupDiv.innerHTML = `
         <div class="dashboard-header">
             <div>
-                <h2>WhatsApp Summarizer</h2>
-                <p>Summaries will be sent automatically based on the schedules below.</p>
+                <h2>WhatsApp Assistant</h2>
             </div>
             <div class="dashboard-header-right">
                 <div id="whatsapp-status-indicator" class="whatsapp-status">
@@ -819,7 +847,7 @@ function renderDashboard(currentSchedules) {
         </div>
 
         <div id="schedule-list-container">
-            <h3>Schedule Daily Briefs:</h3>
+            <h3>Scheduled Daily Briefs:</h3>
             <ul id="schedules-ul"></ul>
         </div>
     `;
@@ -864,7 +892,7 @@ function renderDashboard(currentSchedules) {
             li.innerHTML = `
                 <div class="schedule-item-dashboard">
                     <div style="flex: 1;">
-                        <strong>${chat.name}</strong> <span style="color: #666; font-weight: normal;">Daily at ${chat.time}</span>
+                        <strong>${chat.name}</strong> <span style="color: #666; font-weight: normal;">at ${chat.time}</span>
                     </div>
                     <div style="display: flex; gap: 5px;">
                         <button class="edit-chat-button secondary-button" data-chat-name="${chat.name}" title="Edit schedule">✏️</button>

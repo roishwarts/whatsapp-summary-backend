@@ -24,12 +24,13 @@
     },
     "directories": {
       "output": "dist"
-    } 
+    }
   },
   "dependencies": {
     "electron-store": "^11.0.2",
     "nodemailer": "^6.9.13",
     "openai": "^6.10.0",
+    "pusher-js": "^8.4.0",
     "twilio": "^5.0.0",
     "ws": "^8.18.0"
   }

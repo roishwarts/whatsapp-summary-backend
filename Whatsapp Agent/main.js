@@ -3,6 +3,7 @@ const { app, BrowserWindow, session, ipcMain } = require('electron');
 const path = require('path'); 
 const Store = require('electron-store').default;
 const { startWsBridge } = require('./ws-client'); 
+const Pusher = require('pusher-js');
 
 // --- 2. Configuration & Store ---
 // Use a more recent Chrome user agent to bypass WhatsApp Web detection
@@ -41,6 +42,395 @@ let uiWindow = null;
 let automationInterval = null; 
 let chatQueue = [];
 let currentlyRunningChat = null;
+let pusherInstance = null;
+
+// --- 2.1. Real-time Command Handling (Pusher Listener) ---
+
+/**
+ * Handle incoming WhatsApp command received via Pusher.
+ * Routes between Daily Brief and Message Scheduling based on keywords.
+ */
+function handleIncomingWhatsAppCommand(message, sender) {
+    const text = (message || '').toString().trim();
+    if (!text) {
+        console.warn('[Pusher Command] Empty message received, ignoring.');
+        return;
+    }
+
+    console.log('[Pusher Command] Raw command:', { sender, text });
+
+    // Detect intent by keywords (English + Hebrew)
+    const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
+    const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
+
+    const isSchedule = scheduleRegex.test(text);
+    const isSummary = summaryRegex.test(text);
+
+    if (isSchedule) {
+        console.log('[Pusher Command] Detected SCHEDULE intent');
+        handleScheduleCommandFromText(text, sender);
+    } else if (isSummary) {
+        console.log('[Pusher Command] Detected SUMMARY intent');
+        handleSummaryCommandFromText(text, sender);
+    } else {
+        console.log('[Pusher Command] No matching intent keyword found, ignoring.');
+    }
+}
+
+// Normalize group/chat name (Hebrew): strip generic "קבוצה"/"קבוצת" prefix when present
+function normalizeGroupName(name) {
+    if (!name) return null;
+    let cleaned = name.trim();
+    // E.g. "קבוצת הדירות" -> "הדירות"
+    cleaned = cleaned.replace(/^קבוצ[הת]\s+/, '').trim();
+
+    // If phrase contains "עם X" (e.g. "לי את השיחה עם דור"), prefer the part after the last "עם"
+    if (cleaned.includes('עם ')) {
+        const parts = cleaned.split('עם ').filter(Boolean);
+        if (parts.length > 0) {
+            cleaned = parts[parts.length - 1].trim();
+        }
+    }
+
+    return cleaned || name.trim();
+}
+
+/**
+ * Try to extract a chat / group name from free-text command.
+ * Supports patterns like:
+ *  - "summary for MyGroup"
+ *  - "סכם את קבוצת הדירות"
+ *  - "סיכום של קבוצת משפחה"
+ *  - "סיכום קבוצת הדירות"
+ */
+function extractChatNameFromText(text) {
+    if (!text) return null;
+
+    const normalized = text.trim();
+
+    // Hebrew summary-style patterns: capture everything after the keyword as the group name
+    const hebrewSummaryPatterns = [
+        /סיכום\s+של\s+(.+)/,              // "סיכום של <group>"
+        /סיכום\s+קבוצ[הת]\s+(.+)/,        // "סיכום קבוצת/קבוצה <group>"
+        /סכם(?:\s+את|\s+על|\s+ל)?\s+(.+)/ // "סכם את <group>", "סכם על <group>", "סכם ל <group>"
+    ];
+
+    for (const pattern of hebrewSummaryPatterns) {
+        const m = normalized.match(pattern);
+        if (m && m[1]) {
+            return normalizeGroupName(m[1]);
+        }
+    }
+
+    // English: "for <group>" or "to <group>"
+    const forMatch = normalized.match(/\bfor\s+(.+?)(?:\s+at\b|\s+on\b|$)/i);
+    const toMatch = normalized.match(/\bto\s+(.+?)(?:\s+at\b|\s+on\b|$)/i);
+    // Hebrew: "עם <group>" or "לקבוצה <group>"
+    const imMatch = normalized.match(/עם\s+(.+?)(?:\s+ב|\s+בשעה|$)/);
+    const leKvutzaMatch = normalized.match(/לקבוצה\s+(.+?)(?:\s+ב|\s+בשעה|$)/);
+
+    const match =
+        forMatch?.[1] ||
+        toMatch?.[1] ||
+        imMatch?.[1] ||
+        leKvutzaMatch?.[1];
+
+    if (!match) return null;
+    return normalizeGroupName(match);
+}
+
+/**
+ * Handle a "summary" style command: trigger an immediate Daily Brief
+ * for the requested chat/group.
+ */
+function handleSummaryCommandFromText(text, sender) {
+    const chatName = extractChatNameFromText(text);
+    if (!chatName) {
+        console.warn('[Pusher Command] Summary intent detected but no chat/group name found in text:', text);
+        return;
+    }
+
+    console.log(`[Pusher Command] Triggering Daily Brief for chat: "${chatName}" (sender: ${sender || 'unknown'})`);
+
+    // Use existing automation pipeline: processChatQueue + processNextChatInQueue + whatsapp:response-messages
+    const onDemandChat = {
+        name: chatName,
+        time: '00:00',
+        frequency: 'on-demand',
+        lastRunTime: null
+    };
+
+    // Fire and forget; errors are already logged inside processChatQueue
+    processChatQueue([onDemandChat]).catch(err => {
+        console.error('[Pusher Command] Error while running Daily Brief for chat', chatName, err);
+    });
+}
+
+/**
+ * Parse a scheduling command and create a scheduled message entry.
+ * Expected patterns (flexible, best-effort):
+ *  - "schedule for MyGroup at 21:30 Hello team..."
+ *  - "send at 09:00 to MyGroup Good morning"
+ *  - "תזמן שלח הודעה לקבוצה משפחה ב 21:30 טקסט כלשהו"
+ */
+function extractChatNameFromScheduleText(text) {
+    if (!text) return null;
+    const normalized = text.trim();
+
+    // Hebrew schedule-style: "שלח הודעה ל<name> ..." / "תזמן ... ל<name> ..."
+    const patterns = [
+        /שלח\s+הודעה\s+ל(.+?)(?:\s+מחר|\s+היום|\s+מחרתיים|\s+בשעה|\s+ב\s*\d|\s*,|$)/,
+        /תזמן(?:\s+הודעה)?\s+ל(.+?)(?:\s+מחר|\s+היום|\s+מחרתיים|\s+בשעה|\s+ב\s*\d|\s*,|$)/
+    ];
+
+    for (const pattern of patterns) {
+        const m = normalized.match(pattern);
+        if (m && m[1]) {
+            return normalizeGroupName(m[1]);
+        }
+    }
+
+    // Generic Hebrew "ל<name>" near time/date words (fallback)
+    const genericMatch = normalized.match(/ל([^,]+?)(?:\s+מחר|\s+היום|\s+מחרתיים|\s+בשעה|\s+ב\s*\d|\s*,|$)/);
+    if (genericMatch && genericMatch[1]) {
+        return normalizeGroupName(genericMatch[1]);
+    }
+
+    return null;
+}
+
+// Split free-text into "header" (recipient/time) and "content" (message body)
+// using a set of Hebrew/structural keywords (e.g. "תכתוב", "עם הטקסט", "ותגיד לו", "תוכן", ":").
+function splitMessageContentFromText(text) {
+    if (!text) return { header: '', content: '' };
+    const normalized = text.trim();
+
+    const contentKeywords = [
+        'תכתוב',
+        'שאומרת',
+        'שאמרת',
+        'עם הטקסט',
+        'ותגיד לו',
+        'ותגיד לה',
+        'ותגידי לו',
+        'ותגידי לה',
+        'תוכן'
+    ];
+
+    let bestIndex = -1;
+    let bestLength = 0;
+
+    // Look for explicit Hebrew content keywords
+    for (const kw of contentKeywords) {
+        const idx = normalized.indexOf(kw);
+        if (idx !== -1 && (bestIndex === -1 || idx < bestIndex)) {
+            bestIndex = idx;
+            bestLength = kw.length;
+        }
+    }
+
+    // Also treat ":" as a possible separator, but ONLY if it's not part of a time (e.g. 10:30)
+    let colonIdx = -1;
+    for (let i = 0; i < normalized.length; i++) {
+        if (normalized[i] === ':') {
+            const before = normalized.slice(Math.max(0, i - 2), i).trim(); // up to 2 digits before
+            const after = normalized.slice(i + 1, i + 3);                  // up to 2 digits after
+            const isTimeColon =
+                /^\d{1,2}$/.test(before) && /^\d{2}$/.test(after);
+            if (!isTimeColon) {
+                colonIdx = i;
+                break;
+            }
+        }
+    }
+    if (colonIdx !== -1 && (bestIndex === -1 || colonIdx < bestIndex)) {
+        bestIndex = colonIdx;
+        bestLength = 1;
+    }
+
+    if (bestIndex === -1) {
+        return { header: normalized, content: '' };
+    }
+
+    const header = normalized.slice(0, bestIndex).trim();
+    let content = normalized.slice(bestIndex + bestLength);
+    // Strip leading punctuation/whitespace
+    content = content.replace(/^[\s,:-]+/, '').trim();
+
+    return { header, content };
+}
+
+function parseScheduleCommandFromText(text) {
+    if (!text) return null;
+
+    const fullText = text.trim();
+
+    // 1) Split into header (recipient/time) and content (message body)
+    const { header, content } = splitMessageContentFromText(fullText);
+
+    // 2) Extract time (supports HH:MM or H, e.g. "9" -> "09:00")
+    const timeMatch = fullText.match(/(\d{1,2}:\d{2}|\d{1,2})/);
+    if (!timeMatch) {
+        console.warn('[Pusher Command] Schedule intent detected but no time (HH:MM or H) found in text:', text);
+        return null;
+    }
+    let time = timeMatch[1];
+    if (!time.includes(':')) {
+        const hour = parseInt(time, 10);
+        if (isNaN(hour) || hour < 0 || hour > 23) {
+            console.warn('[Pusher Command] Invalid hour in schedule command:', time, 'text:', text);
+            return null;
+        }
+        time = String(hour).padStart(2, '0') + ':00';
+    }
+
+    // 3) Optional date (YYYY-MM-DD)
+    const dateMatch = fullText.match(/(\d{4}-\d{2}-\d{2})/);
+
+    // Determine date: explicit or inferred (today/tomorrow)
+    let date;
+    const now = new Date();
+    if (dateMatch) {
+        date = dateMatch[1];
+    } else {
+        const [h, m] = time.split(':').map(Number);
+        const scheduled = new Date(now);
+        scheduled.setHours(h, m, 0, 0);
+        if (scheduled <= now) {
+            // If time already passed today, use tomorrow
+            scheduled.setDate(scheduled.getDate() + 1);
+        }
+        date = scheduled.toISOString().split('T')[0];
+    }
+
+    // 4) Extract chat/group name from the header (preferred) or full text
+    const baseTextForRecipient = header || fullText;
+    const chatName =
+        extractChatNameFromScheduleText(baseTextForRecipient) ||
+        extractChatNameFromText(baseTextForRecipient);
+    if (!chatName) {
+        console.warn('[Pusher Command] Schedule intent detected but no chat/group name found in text:', text);
+        return null;
+    }
+
+    // 5) Determine message body
+    let messageText = content;
+
+    // Fallback: if no explicit content keyword was found, derive content
+    // by stripping known structural words, chat name, date and time.
+    if (!messageText) {
+        messageText = fullText;
+        // Remove English keywords
+        messageText = messageText.replace(/schedule|send at|send|at|for|to/gi, ' ');
+        // Remove Hebrew structural words
+        messageText = messageText.replace(/תזמן|שלח הודעה|לקבוצה|עם|למחר|היום|מחרתיים|מחר|בשעה|ביום/gi, ' ');
+        // Remove chat name, date and time
+        messageText = messageText.replace(chatName, ' ');
+        if (dateMatch) {
+            messageText = messageText.replace(dateMatch[1], ' ');
+        }
+        messageText = messageText.replace(timeMatch[1], ' ');
+        // Collapse whitespace
+        messageText = messageText.replace(/\s+/g, ' ').trim();
+    }
+
+    if (!messageText) {
+        messageText = `Scheduled message from WhatsApp command for "${chatName}"`;
+    }
+
+    return {
+        chatName: chatName.trim(),
+        date,
+        time,
+        message: messageText
+    };
+}
+
+/**
+ * Handle a "schedule/send at" style command:
+ * create a new scheduled message using the existing scheduling feature.
+ */
+function handleScheduleCommandFromText(text, sender) {
+    const parsed = parseScheduleCommandFromText(text);
+    if (!parsed) return;
+
+    const { chatName, date, time, message } = parsed;
+
+    console.log(`[Pusher Command] Scheduling message for chat "${chatName}" at ${date} ${time} (sender: ${sender || 'unknown'})`);
+    console.log('[Pusher Command] Scheduled message text:', message);
+
+    const existing = store.get('scheduledMessages') || [];
+    const updated = [
+        ...existing,
+        {
+            chatName,
+            message,
+            date,
+            time,
+            sent: false
+        }
+    ];
+    store.set('scheduledMessages', updated);
+
+    // Ensure automation loop is running so the message will be sent
+    if (!automationInterval) {
+        startAutomationLoop();
+    }
+
+    // Update UI dashboard if available
+    if (isUIWindowAvailable()) {
+        try {
+            uiWindow.webContents.send(
+                'main:render-scheduled-messages',
+                updated.filter(msg => !msg.sent)
+            );
+            uiWindow.webContents.send('main:automation-status', {
+                message: `Scheduled message for "${chatName}" at ${date} ${time} (via WhatsApp command)`
+            });
+        } catch (err) {
+            console.error('[Pusher Command] Error sending UI update for scheduled messages:', err);
+        }
+    }
+}
+
+/**
+ * Set up Pusher listener for real-time WhatsApp commands.
+ * Starts once the app is ready.
+ */
+function setupPusherListener() {
+    try {
+        // Use env if provided, otherwise default to the known Pusher app key/cluster
+        const PUSHER_KEY = process.env.PUSHER_KEY || '9074ed07371db1b3c01d';
+        const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER || 'eu';
+
+        if (!PUSHER_KEY) {
+            console.warn('[Pusher] No valid PUSHER_KEY configured. Real-time commands are disabled.');
+            return;
+        }
+
+        console.log('[Pusher] Initializing Pusher client...');
+
+        pusherInstance = new Pusher(PUSHER_KEY, {
+            cluster: PUSHER_CLUSTER,
+            forceTLS: true
+        });
+
+        const channel = pusherInstance.subscribe('whatsapp-channel');
+
+        channel.bind('new-command', (data) => {
+            console.log('[Pusher] New command received via WhatsApp:', data);
+            try {
+                handleIncomingWhatsAppCommand(data.message, data.sender);
+            } catch (err) {
+                console.error('[Pusher] Error handling incoming WhatsApp command:', err);
+            }
+        });
+
+        console.log('[Pusher] Listening on channel "whatsapp-channel", event "new-command".');
+    } catch (error) {
+        console.error('[Pusher] Failed to initialize Pusher listener:', error);
+    }
+}
 
 // Helper function to safely check if WhatsApp window is available
 function isWhatsAppWindowAvailable() {
@@ -938,8 +1328,8 @@ ipcMain.on('whatsapp:ready', (event) => {
             }
         }
     } else {
-        // Already set up, request chat list if needed
-        event.sender.send('app:request-chat-list');
+        // Already set up - don't automatically request chat list
+        // Chat list will be requested only when user clicks the button
     }
 });
 
@@ -1087,6 +1477,8 @@ app.whenReady().then(() => {
     
     if (store.get('globalSettings.isSetupComplete')) startAutomationLoop();
     startWsBridge(store);
+    // Start real-time WhatsApp command listener (Pusher)
+    setupPusherListener();
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
