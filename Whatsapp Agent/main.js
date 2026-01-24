@@ -399,19 +399,9 @@ function handleScheduleCommandFromText(text, sender) {
  */
 function setupPusherListener() {
     try {
-        // Use environment variables for Pusher configuration
-        const PUSHER_KEY = process.env.PUSHER_KEY;
-        const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER;
-
-        if (!PUSHER_KEY) {
-            console.warn('[Pusher] PUSHER_KEY environment variable not set. Real-time commands are disabled.');
-            return;
-        }
-
-        if (!PUSHER_CLUSTER) {
-            console.warn('[Pusher] PUSHER_CLUSTER environment variable not set. Real-time commands are disabled.');
-            return;
-        }
+        // Use hardcoded Pusher credentials
+        const PUSHER_KEY = '9074ed07371db1b3c01d';
+        const PUSHER_CLUSTER = 'eu';
 
         console.log('[Pusher] Initializing Pusher client...');
 
