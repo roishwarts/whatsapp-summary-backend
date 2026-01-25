@@ -2213,6 +2213,38 @@ ipcRenderer.on('app:command-send-message', async (event, { chatName, messageText
     }
 });
 
+// Listener 5: Main asks to answer a question for a chat
+ipcRenderer.on('app:command-answer-question', async (event, { chatName, question }) => {
+    console.log(`[Preload] Received question command for chat: "${chatName}", question: "${question}"`);
+    try {
+        // First, open the chat
+        await clickChat(chatName);
+        
+        // Wait for chat to open and messages to load
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Extract messages (today's messages, same as daily brief)
+        const messages = await getMessages();
+        
+        console.log(`[Preload] Extracted ${messages.length} messages for question answering`);
+        
+        // Send messages and question back to main process
+        ipcRenderer.send('whatsapp:messages-for-question', {
+            chatName: chatName,
+            question: question,
+            messages: messages
+        });
+    } catch (error) {
+        console.error('[Preload] Error processing question:', error);
+        ipcRenderer.send('whatsapp:question-answered', {
+            chatName: chatName,
+            answer: null,
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 
 // --- 4. Readiness Check ---
 function checkWhatsAppLoaded() {

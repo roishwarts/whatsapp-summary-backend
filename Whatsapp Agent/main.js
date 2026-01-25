@@ -2,8 +2,8 @@
 const { app, BrowserWindow, session, ipcMain } = require('electron');
 const path = require('path'); 
 const Store = require('electron-store').default;
-const { startWsBridge } = require('./ws-client'); 
 const Pusher = require('pusher-js');
+const twilio = require('twilio');
 
 // --- 2. Configuration & Store ---
 // Use a more recent Chrome user agent to bypass WhatsApp Web detection
@@ -59,7 +59,7 @@ function handleIncomingWhatsAppCommand(message, sender) {
 
     console.log('[Pusher Command] Raw command:', { sender, text });
 
-    // Detect intent by keywords (English + Hebrew)
+    // Detect intent by keywords (English + Hebrew) - Priority order: Schedule > Summary > Question
     const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
     const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
 
@@ -72,6 +72,9 @@ function handleIncomingWhatsAppCommand(message, sender) {
     } else if (isSummary) {
         console.log('[Pusher Command] Detected SUMMARY intent');
         handleSummaryCommandFromText(text, sender);
+    } else if (isQuestionIntent(text)) {
+        console.log('[Pusher Command] Detected QUESTION intent (fallback)');
+        handleQuestionCommandFromText(text, sender);
     } else {
         console.log('[Pusher Command] No matching intent keyword found, ignoring.');
     }
@@ -93,6 +96,179 @@ function normalizeGroupName(name) {
     }
 
     return cleaned || name.trim();
+}
+
+/**
+ * Detect if a text message is a question intent.
+ * Checks for question keywords and patterns (Hebrew + English).
+ */
+function isQuestionIntent(text) {
+    if (!text) return false;
+    const normalized = text.trim();
+
+    // Question keywords (Hebrew + English)
+    const questionKeywords = [
+        // Hebrew
+        /\b(שאל|תשאל|מה|איך|מתי|איפה|למה|מי)\b/,
+        // English
+        /\b(ask|question|what|how|when|where|why|who)\b/i
+    ];
+
+    // Check for question keywords
+    for (const keywordRegex of questionKeywords) {
+        if (keywordRegex.test(normalized)) {
+            return true;
+        }
+    }
+
+    // Check for question mark at the end
+    if (normalized.endsWith('?') || normalized.endsWith('؟')) {
+        return true;
+    }
+
+    // Check if message contains a group name (indicates it's about a specific group)
+    // This helps distinguish between generic questions and group-specific questions
+    const hasGroupName = extractChatNameFromQuestionText(normalized) !== null;
+    if (hasGroupName) {
+        // If it has a group name and looks like a question, treat it as question intent
+        // Look for question patterns even without explicit keywords
+        const questionPatterns = [
+            /(?:מה|איך|מתי|איפה|למה|מי|what|how|when|where|why|who)/i,
+            /\?/,
+            /(?:קרה|אמר|כתב|שלח|היה|יש|היו)/ // Common Hebrew verbs in questions
+        ];
+        for (const pattern of questionPatterns) {
+            if (pattern.test(normalized)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Extract chat/group name from a question command.
+ * Supports patterns like:
+ *  - "שאל את קבוצת הדירות מתי יש פגישה?"
+ *  - "מה קרה בקבוצת הדירות היום?"
+ *  - "בשיחה עם דור, מתי אמרנו שנפגשים?"
+ *  - "ask about MyGroup what happened?"
+ */
+function extractChatNameFromQuestionText(text) {
+    if (!text) return null;
+    const normalized = text.trim();
+
+    // Hebrew question patterns
+    const hebrewQuestionPatterns = [
+        /שאל\s+(?:את|על|ב)\s+(?:קבוצ[הת]\s+)?(.+?)(?:\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        /(?:מה|איך|מתי|איפה|למה|מי)\s+(?:קרה|אמר|כתב|שלח|היה|יש|היו)\s+(?:ב|ב-|בקבוצ[הת]|ב-קבוצ[הת])\s*(.+?)(?:\s+היום|\s+אתמול|\?|$)/,
+        /(?:מה|איך|מתי|איפה|למה|מי)\s+(?:קרה|אמר|כתב|שלח|היה|יש|היו)\s+(?:עם|ל)\s+(.+?)(?:\s+היום|\s+אתמול|\?|$)/,
+        // Add pattern for "בשיחה עם" (conversation with)
+        /בשיחה\s+עם\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Add pattern for "בקבוצת" (in group)
+        /בקבוצ[הת]\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Add pattern for "עם" at start or after comma
+        /(?:^|,)\s*עם\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Add pattern for "ל" (to/for) at start or after comma
+        /(?:^|,)\s*ל\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Generic fallback: look for common prefixes
+        /(?:בקבוצ[הת]|קבוצ[הת]|עם|ל)\s+(.+?)(?:\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/
+    ];
+
+    for (const pattern of hebrewQuestionPatterns) {
+        const m = normalized.match(pattern);
+        if (m && m[1]) {
+            const extracted = normalizeGroupName(m[1].trim());
+            if (extracted && extracted.length > 0) {
+                return extracted;
+            }
+        }
+    }
+
+    // English question patterns
+    const englishQuestionPatterns = [
+        /(?:ask|question)\s+(?:about|for|in)\s+(.+?)(?:\s+what|\s+how|\s+when|\s+where|\s+why|\s+who|\?|$)/i,
+        /(?:what|how|when|where|why|who)\s+(?:happened|said|wrote|sent|was|is|are)\s+(?:in|about|with|to)\s+(.+?)(?:\?|$)/i,
+        // Add pattern for "with" or "to" at start or after comma
+        /(?:^|,)\s*(?:with|to|about|in)\s+(.+?)(?:\s*,|\s+what|\s+how|\s+when|\s+where|\s+why|\s+who|\?|$)/i,
+        /(?:in|about|with|to)\s+(.+?)(?:\s+what|\s+how|\s+when|\s+where|\s+why|\s+who|\?|$)/i
+    ];
+
+    for (const pattern of englishQuestionPatterns) {
+        const m = normalized.match(pattern);
+        if (m && m[1]) {
+            const extracted = normalizeGroupName(m[1].trim());
+            if (extracted && extracted.length > 0) {
+                return extracted;
+            }
+        }
+    }
+
+    // Fallback: try generic extraction (reuse existing function)
+    return extractChatNameFromText(normalized);
+}
+
+/**
+ * Extract the question text from a command, removing group name and question keywords.
+ */
+function extractQuestionFromText(text, chatName) {
+    if (!text) return '';
+    let question = text.trim();
+
+    // Remove common question prefixes (Hebrew)
+    question = question.replace(/^(?:שאל|תשאל)\s+(?:את|על|ב)\s+(?:קבוצ[הת]\s+)?[^\s]+\s*/i, '');
+    // Remove "בשיחה עם" pattern
+    question = question.replace(/^בשיחה\s+עם\s+[^\s,]+\s*,?\s*/i, '');
+    // Remove common question prefixes (English)
+    question = question.replace(/^(?:ask|question)\s+(?:about|for|in)\s+[^\s]+\s*/i, '');
+
+    // Remove group name if present
+    if (chatName) {
+        // Remove group name with various prefixes
+        const patterns = [
+            new RegExp(`(?:בשיחה\\s+עם|בקבוצ[הת]|קבוצ[הת]|עם|ל)\\s*${chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*,?\\s*`, 'gi'),
+            new RegExp(`(?:in|about|with|to)\\s*${chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*,?\\s*`, 'gi'),
+            new RegExp(chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+        ];
+        for (const pattern of patterns) {
+            question = question.replace(pattern, '');
+        }
+    }
+
+    // Clean up whitespace and leading commas
+    question = question.replace(/^[,.\s]+/, '').trim();
+
+    // If question is empty or too short, use the original text
+    if (!question || question.length < 3) {
+        question = text.trim();
+    }
+
+    return question;
+}
+
+/**
+ * Handle a question command: extract messages from the specified group and answer the question.
+ */
+function handleQuestionCommandFromText(text, sender) {
+    const chatName = extractChatNameFromQuestionText(text);
+    if (!chatName) {
+        console.warn('[Pusher Command] Question intent detected but no chat/group name found in text:', text);
+        return;
+    }
+
+    const question = extractQuestionFromText(text, chatName);
+    if (!question) {
+        console.warn('[Pusher Command] Question intent detected but no question text found:', text);
+        return;
+    }
+
+    console.log(`[Pusher Command] Processing question for chat: "${chatName}", question: "${question}" (sender: ${sender || 'unknown'})`);
+
+    // Process question asynchronously
+    processQuestionForChat(chatName, question, sender).catch(err => {
+        console.error('[Pusher Command] Error while processing question for chat', chatName, err);
+    });
 }
 
 /**
@@ -480,6 +656,34 @@ async function callVercelBackend(chatName, messages) {
     } catch (error) {
         console.error('[Network Error]', error.message);
         return { summary: '[Error] ${error.message}', error: true };
+    }
+}
+
+// --- 3.1. Vercel Question API Integration ---
+async function callVercelQuestionAPI(chatName, messages, question) {
+    const VERCEL_URL = 'https://whatsapp-summary-backend.vercel.app/api/answer-question';
+    
+    const payload = {
+        chatName: chatName,
+        messages: messages,
+        question: question
+    };
+
+    console.log(`[Network] Sending question to Vercel for ${chatName}. Question: "${question}"`);
+
+    try {
+        const response = await fetch(VERCEL_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Server Error ${response.status}`);
+        return data; 
+    } catch (error) {
+        console.error('[Network Error]', error.message);
+        return { answer: `[Error] ${error.message}`, error: true };
     }
 }
 // --- 4. Window Creation Functions ---
@@ -1048,6 +1252,41 @@ async function processScheduledMessage(message) {
     }
 }
 
+/**
+ * Process a question for a specific chat: open chat, extract messages, call API, send answer.
+ */
+async function processQuestionForChat(chatName, question, sender) {
+    try {
+        // Ensure window exists before processing
+        const windowReady = await ensureWhatsAppWindowExists();
+        if (!windowReady) {
+            console.log('[Question] WhatsApp window not available');
+            return;
+        }
+
+        console.log(`[Question] Processing question for chat: "${chatName}"`);
+
+        // Store question context for the response handler
+        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents._pendingQuestion = {
+                chatName: chatName,
+                question: question,
+                sender: sender
+            };
+
+            // Send command to open chat and extract messages
+            whatsappWindow.webContents.send('app:command-answer-question', {
+                chatName: chatName,
+                question: question
+            });
+        } else {
+            throw new Error('Window not available at question processing time');
+        }
+    } catch (error) {
+        console.error('[Question] Error in processQuestionForChat:', error);
+    }
+}
+
 async function processNextChatInQueue() {
     try {
         if (chatQueue.length === 0) {
@@ -1397,6 +1636,82 @@ ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) 
     }
 });
 
+// Handler for question answering: receive messages, call API, send answer via WhatsApp
+ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question, messages }) => {
+    console.log(`[Question] Received ${messages.length} messages for question about "${chatName}"`);
+    
+    if (!whatsappWindow || !whatsappWindow._pendingQuestion) {
+        console.warn('[Question] No pending question context found');
+        return;
+    }
+
+    const pendingQuestion = whatsappWindow._pendingQuestion;
+    delete whatsappWindow._pendingQuestion;
+
+    try {
+        // Call Vercel API to get answer
+        const result = await callVercelQuestionAPI(chatName, messages, question);
+        
+        if (result.error) {
+            throw new Error(result.answer || 'Failed to get answer from API');
+        }
+
+        const answer = result.answer;
+        console.log(`[Question] Got answer for "${chatName}": ${answer.substring(0, 100)}...`);
+
+        // Send answer back via WhatsApp to the sender using Twilio
+        if (pendingQuestion.sender) {
+            // Format the answer message
+            const answerMessage = `Question about ${chatName}:\n${question}\n\nAnswer:\n${answer}`;
+            
+            // Get Twilio credentials from store
+            const twilioAccountSid = store.get('globalSettings.twilioAccountSid');
+            const twilioAuthToken = store.get('globalSettings.twilioAuthToken');
+            const twilioWhatsAppNumber = store.get('globalSettings.twilioWhatsAppNumber');
+            
+            if (twilioAccountSid && twilioAuthToken && twilioWhatsAppNumber) {
+                try {
+                    const twilioClient = twilio(twilioAccountSid, twilioAuthToken);
+                    await twilioClient.messages.create({
+                        from: `whatsapp:${twilioWhatsAppNumber}`,
+                        to: `whatsapp:${pendingQuestion.sender}`,
+                        body: answerMessage
+                    });
+                    console.log(`[Question] Answer sent back to ${pendingQuestion.sender} via Twilio`);
+                } catch (twilioError) {
+                    console.error('[Question] Error sending answer via Twilio:', twilioError);
+                    console.warn('[Question] Twilio credentials may be missing or invalid');
+                }
+            } else {
+                console.warn('[Question] Twilio credentials not configured - cannot send answer back');
+            }
+        } else {
+            console.warn('[Question] No sender information available - cannot send answer back');
+        }
+
+        // Notify that question was answered
+        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents.send('whatsapp:question-answered', {
+                chatName: chatName,
+                answer: answer,
+                success: true
+            });
+        }
+    } catch (error) {
+        console.error('[Question] Error processing question:', error);
+        
+        // Notify about error
+        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents.send('whatsapp:question-answered', {
+                chatName: chatName,
+                answer: null,
+                success: false,
+                error: error.message
+            });
+        }
+    }
+});
+
 ipcMain.on('whatsapp:response-messages', async (event, messages) => {
     if (!currentlyRunningChat) return;
     updateChatLastRunTime();
@@ -1471,7 +1786,6 @@ app.whenReady().then(() => {
     }, 300);
     
     if (store.get('globalSettings.isSetupComplete')) startAutomationLoop();
-    startWsBridge(store);
     // Start real-time WhatsApp command listener (Pusher)
     setupPusherListener();
 });
