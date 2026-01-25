@@ -1266,19 +1266,21 @@ async function processQuestionForChat(chatName, question, sender) {
 
         console.log(`[Question] Processing question for chat: "${chatName}"`);
 
-        // Store question context for the response handler
-        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
-            whatsappWindow.webContents._pendingQuestion = {
+        // Store question context for the response handler (store on window, not webContents, for consistency)
+        if (isWhatsAppWindowAvailable() && whatsappWindow) {
+            whatsappWindow._pendingQuestion = {
                 chatName: chatName,
                 question: question,
                 sender: sender
             };
 
             // Send command to open chat and extract messages
-            whatsappWindow.webContents.send('app:command-answer-question', {
-                chatName: chatName,
-                question: question
-            });
+            if (whatsappWindow.webContents) {
+                whatsappWindow.webContents.send('app:command-answer-question', {
+                    chatName: chatName,
+                    question: question
+                });
+            }
         } else {
             throw new Error('Window not available at question processing time');
         }
