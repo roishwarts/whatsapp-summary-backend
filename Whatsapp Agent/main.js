@@ -287,56 +287,81 @@ function handleQuestionCommandFromText(text, sender) {
 
 /**
  * Try to extract a chat / group name from free-text command.
+ * Uses a robust approach that identifies where the group name starts
+ * based on structural patterns, then extracts it.
  * Supports patterns like:
  *  - "summary for MyGroup"
  *  - "סכם את קבוצת הדירות"
+ *  - "סכם את השיחה בMeDS"
+ *  - "סכם מה דיברו בקבוצה של MeDS"
  *  - "סיכום של קבוצת משפחה"
- *  - "סיכום קבוצת הדירות"
  */
 function extractChatNameFromText(text) {
     if (!text) return null;
 
     const normalized = text.trim();
 
-    // Hebrew summary-style patterns: capture group name after prepositions
-    // Order matters - more specific patterns first
-    const hebrewSummaryPatterns = [
-        // "סכם את השיחה בX" -> extract "X" (most specific, must come first)
-        /סכם\s+את\s+השיחה\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|$|\?)/,  // "סכם את השיחה בX" or "סכם את השיחה בקבוצה X"
-        /סכם\s+את\s+השיחה\s+ב(.+?)(?:\s|$|\?)/,  // "סכם את השיחה בX"
-        // "מה היה היום בקהילה X?" -> extract "X"
-        /מה\s+היה\s+היום\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|\?|$)/,  // "מה היה היום בקהילה X?"
-        /מה\s+היה\s+היום\s+ב(.+?)(?:\s|\?|$)/,  // "מה היה היום בX?"
-        // Other specific patterns
-        /סיכום\s+של\s+(.+)/,              // "סיכום של <group>"
-        /סיכום\s+קבוצ[הת]\s+(.+)/,        // "סיכום קבוצת/קבוצה <group>"
-        /סכם\s+את\s+קבוצ[הת]\s+(.+)/,     // "סכם את קבוצת X"
-        // Generic pattern (must come last)
-        /סכם(?:\s+את|\s+על|\s+ל)?\s+(.+)/ // "סכם את <group>", "סכם על <group>", "סכם ל <group>"
+    // Patterns that indicate where the group name starts (ordered by specificity)
+    // These patterns capture the group name that comes AFTER the marker
+    const groupNameMarkers = [
+        // "סכם מה דיברו בקבוצה של X" -> extract "X"
+        /(?:סכם|סיכום)\s+מה\s+דיברו\s+ב(?:קבוצ[הת]|קהילה)\s+של\s+(.+?)(?:\s|$|\?|,)/,
+        // "סכם מה דיברו בX" -> extract "X"
+        /(?:סכם|סיכום)\s+מה\s+דיברו\s+ב\s*(.+?)(?:\s|$|\?|,)/,
+        // "סכם את השיחה בX" or "סכם את השיחה בקבוצה X" -> extract "X"
+        /(?:סכם|סיכום)\s+את\s+השיחה\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|$|\?|,)/,
+        // "מה היה היום בX" or "מה היה היום בקבוצה X" -> extract "X"
+        /מה\s+היה\s+היום\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|$|\?|,)/,
+        // "סיכום של X" -> extract "X"
+        /סיכום\s+של\s+(.+?)(?:\s|$|\?|,)/,
+        // "סכם את קבוצת X" -> extract "X"
+        /(?:סכם|סיכום)\s+את\s+קבוצ[הת]\s+(.+?)(?:\s|$|\?|,)/,
+        // "סיכום קבוצת X" -> extract "X"
+        /סיכום\s+קבוצ[הת]\s+(.+?)(?:\s|$|\?|,)/,
+        // "סכם את X" -> extract "X" (but be careful - might capture too much)
+        /(?:סכם|סיכום)(?:\s+את|\s+על|\s+ל)?\s+(.+?)(?:\s+ב|\s+בשעה|\s+מחר|\s+היום|$|\?|,)/,
+        // English: "summary for X" or "summarize for X"
+        /(?:summary|summarize)\s+for\s+(.+?)(?:\s+at\b|\s+on\b|$)/i,
+        // English: "summary X" or "summarize X"
+        /(?:summary|summarize)\s+(.+?)(?:\s+at\b|\s+on\b|$)/i
     ];
 
-    for (const pattern of hebrewSummaryPatterns) {
-        const m = normalized.match(pattern);
-        if (m && m[1]) {
-            return normalizeGroupName(m[1]);
+    // Try each pattern in order
+    for (const pattern of groupNameMarkers) {
+        const match = normalized.match(pattern);
+        if (match && match[1]) {
+            const extracted = match[1].trim();
+            // Remove trailing punctuation
+            const cleaned = extracted.replace(/[?.,!;:]+$/, '').trim();
+            if (cleaned && cleaned.length > 0) {
+                // Take only the first word/phrase (group names are usually single words or short phrases)
+                const parts = cleaned.split(/\s+/);
+                const groupName = parts[0];
+                return normalizeGroupName(groupName);
+            }
         }
     }
 
-    // English: "for <group>" or "to <group>"
-    const forMatch = normalized.match(/\bfor\s+(.+?)(?:\s+at\b|\s+on\b|$)/i);
-    const toMatch = normalized.match(/\bto\s+(.+?)(?:\s+at\b|\s+on\b|$)/i);
-    // Hebrew: "עם <group>" or "לקבוצה <group>"
-    const imMatch = normalized.match(/עם\s+(.+?)(?:\s+ב|\s+בשעה|$)/);
-    const leKvutzaMatch = normalized.match(/לקבוצה\s+(.+?)(?:\s+ב|\s+בשעה|$)/);
+    // Fallback: Try to find group name after common prepositions
+    const fallbackPatterns = [
+        /\bfor\s+(.+?)(?:\s+at\b|\s+on\b|$)/i,
+        /\bto\s+(.+?)(?:\s+at\b|\s+on\b|$)/i,
+        /עם\s+(.+?)(?:\s+ב|\s+בשעה|$)/,
+        /לקבוצה\s+(.+?)(?:\s+ב|\s+בשעה|$)/
+    ];
 
-    const match =
-        forMatch?.[1] ||
-        toMatch?.[1] ||
-        imMatch?.[1] ||
-        leKvutzaMatch?.[1];
+    for (const pattern of fallbackPatterns) {
+        const match = normalized.match(pattern);
+        if (match && match[1]) {
+            const extracted = match[1].trim().replace(/[?.,!;:]+$/, '').trim();
+            if (extracted && extracted.length > 0) {
+                const parts = extracted.split(/\s+/);
+                return normalizeGroupName(parts[0]);
+            }
+        }
+    }
 
-    if (!match) return null;
-    return normalizeGroupName(match);
+    return null;
 }
 
 /**
