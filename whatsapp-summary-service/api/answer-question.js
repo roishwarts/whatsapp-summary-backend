@@ -57,10 +57,15 @@ Answer the user's question now based on the messages provided.`;
 async function sendWhatsAppAnswer(recipientPhoneNumber, chatName, question, answer) {
     if (!recipientPhoneNumber) return 'WhatsApp Skipped: No recipient number.';
     try {
+        // Remove 'whatsapp:' prefix if present (sender comes as 'whatsapp:+972...')
+        const phoneNumber = recipientPhoneNumber.startsWith('whatsapp:') 
+            ? recipientPhoneNumber.replace('whatsapp:', '') 
+            : recipientPhoneNumber;
+        
         const answerMessage = `Question about ${chatName}:\n${question}\n\nAnswer:\n${answer}`;
         const message = await twilioClient.messages.create({
             from: process.env.TWILIO_WHATSAPP_NUMBER,
-            to: `whatsapp:${recipientPhoneNumber}`,
+            to: `whatsapp:${phoneNumber}`,
             body: answerMessage
         });
         return `WhatsApp sent: ${message.sid}`;
