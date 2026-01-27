@@ -220,18 +220,18 @@ function extractQuestionFromText(text, chatName) {
     // Remove common question prefixes (Hebrew)
     question = question.replace(/^(?:שאל|תשאל)\s+(?:את|על|ב)\s+(?:קבוצ[הת]\s+)?[^\s]+\s*/i, '');
     
-    // Remove "בשיחה עם" pattern - stop at verbs like "דיברו"
-    // Match "בשיחה עם" + chat name (1-2 words) + optional comma/space + verb
+    // Remove "בשיחה עם" pattern - keep the verb in the question
+    // Match "בשיחה עם" + chat name (1-2 words) - but don't remove the verb that follows
     if (chatName) {
         const chatNameEscaped = chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        // Pattern: "בשיחה עם" + chat name + (comma/space + verb or end)
+        // Pattern: "בשיחה עם" + chat name + optional comma/space (but keep verb)
         question = question.replace(
-            new RegExp(`^בשיחה\\s+עם\\s+${chatNameEscaped}(?:\\s*,?\\s*(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח))?\\s*`, 'gi'),
+            new RegExp(`^בשיחה\\s+עם\\s+${chatNameEscaped}\\s*,?\\s*`, 'gi'),
             ''
         );
     } else {
-        // Fallback: remove "בשיחה עם" + up to 2 words + verb
-        question = question.replace(/^בשיחה\s+עם\s+[^\s]+(?:\s+[^\s]+)?(?:\s*,?\s*(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח))?\s*/i, '');
+        // Fallback: remove "בשיחה עם" + up to 2 words (but keep verb)
+        question = question.replace(/^בשיחה\s+עם\s+[^\s]+(?:\s+[^\s]+)?\s*,?\s*/i, '');
     }
     
     // Remove common question prefixes (English)
