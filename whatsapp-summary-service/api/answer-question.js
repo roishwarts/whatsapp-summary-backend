@@ -62,11 +62,11 @@ async function sendWhatsAppAnswer(recipientPhoneNumber, chatName, question, answ
             ? recipientPhoneNumber.replace('whatsapp:', '') 
             : recipientPhoneNumber;
         
-        const answerMessage = `Question about ${chatName}:\n${question}\n\nAnswer:\n${answer}`;
+        // Send only the answer text, no headers or question
         const message = await twilioClient.messages.create({
             from: process.env.TWILIO_WHATSAPP_NUMBER,
             to: `whatsapp:${phoneNumber}`,
-            body: answerMessage
+            body: answer
         });
         return `WhatsApp sent: ${message.sid}`;
     } catch (e) {
@@ -99,26 +99,19 @@ module.exports = async (req, res) => {
         // Send answer back via WhatsApp (same as daily brief)
         let whatsappStatus = 'WhatsApp Skipped: No sender.';
         if (sender) {
-            console.log(`[Answer-Question API] Sending answer to sender: ${sender}`);
             try {
                 whatsappStatus = await sendWhatsAppAnswer(sender, chatName, question, answer);
-                console.log(`[Answer-Question API] WhatsApp status: ${whatsappStatus}`);
             } catch (sendError) {
                 console.error('[Answer-Question API] Error sending WhatsApp:', sendError);
                 whatsappStatus = `WhatsApp Delivery Failed: ${sendError.message}`;
             }
-        } else {
-            console.warn('[Answer-Question API] No sender provided, cannot send answer via WhatsApp');
         }
         
         // Return the answer and delivery status back to the Electron App (same format as daily brief)
-        // ALWAYS include deliveryStatus, even if sending failed
-        const response = {
+        res.status(200).json({
             answer: answer,
             deliveryStatus: { whatsapp: whatsappStatus }
-        };
-        console.log(`[Answer-Question API] Returning response:`, JSON.stringify(response, null, 2));
-        res.status(200).json(response);
+        });
 
     } catch (e) {
         // Catch critical errors (like a failed OpenAI call)

@@ -699,7 +699,6 @@ async function callVercelQuestionAPI(chatName, messages, question, sender) {
         }
 
         const data = await response.json();
-        console.log(`[Network] API Response for question:`, JSON.stringify(data, null, 2));
         if (!response.ok) throw new Error(data.error || `Server Error ${response.status}`);
         return data; 
     } catch (error) {
@@ -1715,8 +1714,6 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
         // Call Vercel API to get answer (server will send it back via Twilio)
         const result = await callVercelQuestionAPI(chatName, messages, questionText, pendingQuestion.sender);
         
-        console.log(`[Question] Full API result:`, JSON.stringify(result, null, 2));
-        
         if (result.error) {
             throw new Error(result.answer || 'Failed to get answer from API');
         }
@@ -1724,16 +1721,10 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
         const answer = result.answer;
         const deliveryStatus = result.deliveryStatus || {};
         
-        console.log(`[Question] ✅ Got answer for "${chatName}": ${answer}`);
-        console.log(`[Question] Delivery status object:`, deliveryStatus);
-        console.log(`[Question] Delivery status whatsapp: ${deliveryStatus.whatsapp || 'Unknown'}`);
-        
         if (deliveryStatus.whatsapp && deliveryStatus.whatsapp.includes('sent')) {
             console.log(`[Question] ✅ Answer sent back to ${pendingQuestion.sender} via Twilio`);
         } else if (deliveryStatus.whatsapp) {
             console.warn(`[Question] ⚠️ WhatsApp delivery issue: ${deliveryStatus.whatsapp}`);
-        } else {
-            console.warn(`[Question] ⚠️ No delivery status found in response. Full result:`, result);
         }
 
         // Notify that question was answered
