@@ -298,10 +298,20 @@ function extractChatNameFromText(text) {
 
     const normalized = text.trim();
 
-    // Hebrew summary-style patterns: capture everything after the keyword as the group name
+    // Hebrew summary-style patterns: capture group name after prepositions
+    // Order matters - more specific patterns first
     const hebrewSummaryPatterns = [
+        // "סכם את השיחה בX" -> extract "X" (most specific, must come first)
+        /סכם\s+את\s+השיחה\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|$|\?)/,  // "סכם את השיחה בX" or "סכם את השיחה בקבוצה X"
+        /סכם\s+את\s+השיחה\s+ב(.+?)(?:\s|$|\?)/,  // "סכם את השיחה בX"
+        // "מה היה היום בקהילה X?" -> extract "X"
+        /מה\s+היה\s+היום\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|\?|$)/,  // "מה היה היום בקהילה X?"
+        /מה\s+היה\s+היום\s+ב(.+?)(?:\s|\?|$)/,  // "מה היה היום בX?"
+        // Other specific patterns
         /סיכום\s+של\s+(.+)/,              // "סיכום של <group>"
         /סיכום\s+קבוצ[הת]\s+(.+)/,        // "סיכום קבוצת/קבוצה <group>"
+        /סכם\s+את\s+קבוצ[הת]\s+(.+)/,     // "סכם את קבוצת X"
+        // Generic pattern (must come last)
         /סכם(?:\s+את|\s+על|\s+ל)?\s+(.+)/ // "סכם את <group>", "סכם על <group>", "סכם ל <group>"
     ];
 
