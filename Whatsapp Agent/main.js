@@ -384,7 +384,8 @@ function handleSummaryCommandFromText(text, sender) {
         name: chatName,
         time: '00:00',
         frequency: 'on-demand',
-        lastRunTime: null
+        lastRunTime: null,
+        _onDemandSender: sender // Store sender for on-demand summaries
     };
 
     // Fire and forget; errors are already logged inside processChatQueue
@@ -1775,8 +1776,94 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
     }
 });
 
+/**
+ * Send a notification to the user when no messages are found for a chat.
+ */
+async function sendNoMessagesNotification(chatName, sender) {
+    const twilioAccountSid = store.get('globalSettings.twilioAccountSid');
+    const twilioAuthToken = store.get('globalSettings.twilioAuthToken');
+    const twilioWhatsAppNumber = store.get('globalSettings.twilioWhatsAppNumber');
+    
+    if (!twilioAccountSid || !twilioAuthToken || !twilioWhatsAppNumber) {
+        console.warn('[No Messages] Twilio credentials not configured - cannot send notification');
+        return;
+    }
+    
+    try {
+        const twilioClient = twilio(twilioAccountSid, twilioAuthToken);
+        
+        // Remove 'whatsapp:' prefix if present
+        const phoneNumber = sender.startsWith('whatsapp:') 
+            ? sender.replace('whatsapp:', '') 
+            : sender;
+        
+        // Determine message language based on chat name (Hebrew if contains Hebrew characters)
+        const isHebrew = /[\u0590-\u05FF]/.test(chatName);
+        const message = isHebrew 
+            ? `לא נמצאו הודעות מהיום בקבוצה "${chatName}".`
+            : `No messages found from today in the chat "${chatName}".`;
+        
+        await twilioClient.messages.create({
+            from: `whatsapp:${twilioWhatsAppNumber}`,
+            to: `whatsapp:${phoneNumber}`,
+            body: message
+        });
+        
+        console.log(`[No Messages] Notification sent to ${sender} for chat "${chatName}"`);
+    } catch (error) {
+        console.error('[No Messages] Error sending notification:', error);
+    }
+}
+
 ipcMain.on('whatsapp:response-messages', async (event, messages) => {
     if (!currentlyRunningChat) return;
+    
+    // Check if no messages were found
+    if (!messages || messages.length === 0) {
+        console.log(`[Automation] No messages found for chat: ${currentlyRunningChat.name}`);
+        
+        // Send notification to user if this is an on-demand summary (from Pusher command)
+        if (currentlyRunningChat.frequency === 'on-demand' && currentlyRunningChat._onDemandSender) {
+            await sendNoMessagesNotification(currentlyRunningChat.name, currentlyRunningChat._onDemandSender);
+        }
+        
+        // Update UI status
+        if (isUIWindowAvailable()) {
+            try {
+                uiWindow.webContents.send('main:automation-status', { 
+                    message: `No messages found for ${currentlyRunningChat.name}` 
+                });
+            } catch (error) {
+                console.error('[IPC] Error sending automation status:', error);
+            }
+        }
+        
+        // Continue to next chat in queue
+        if (isWhatsAppWindowAvailable()) {
+            setTimeout(async () => {
+                try {
+                    const windowReady = await ensureWhatsAppWindowExists();
+                    if (windowReady && isWhatsAppWindowAvailable()) {
+                        await processNextChatInQueue();
+                    } else {
+                        console.log('[Automation] WhatsApp window destroyed during wait, stopping automation');
+                        chatQueue = [];
+                        currentlyRunningChat = null;
+                    }
+                } catch (error) {
+                    console.error('[Automation] Error in setTimeout callback:', error);
+                    chatQueue = [];
+                    currentlyRunningChat = null;
+                }
+            }, 1000);
+        } else {
+            console.log('[Automation] WhatsApp window destroyed, stopping automation');
+            chatQueue = [];
+            currentlyRunningChat = null;
+        }
+        return;
+    }
+    
     updateChatLastRunTime();
     // FIXED: Added quotes
     if (isUIWindowAvailable()) {
