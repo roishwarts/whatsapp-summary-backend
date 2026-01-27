@@ -11,22 +11,26 @@ const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_A
  * The answer is based ONLY on the provided messages - no external knowledge.
  */
 async function callOpenAIQuestionAPI(messages, chatName, question) {
-    const context = `You are an assistant that answers questions based ONLY on the provided WhatsApp messages from a group chat.
+    const context = `You are an intelligent assistant that answers questions based on the provided WhatsApp messages from a group chat.
 
 CRITICAL RULES:
 - You MUST answer based ONLY on the information in the provided messages
 - Do NOT use any external knowledge or information not present in the messages
-- If the answer is not in the messages, clearly state (in the same language as the question):
-  - Hebrew: "לא ברור מהשיחה. נסה לשאול שאלה ספציפית יותר."
-  - English: "It's not clear from the conversation. Try asking a more specific question."
+- UNDERSTAND SEMANTIC MEANING: When the user asks about something, look for related concepts, synonyms, and semantic equivalents in the messages, not just exact word matches
+  - Example: If asked "Tell me about the projects", look for discussions about "initiatives", "tasks", "work items", "things we're working on", "plans", "ideas", etc.
+  - Example: If asked "What did they say about the meeting?", look for discussions about "get-together", "gathering", "appointment", "scheduled time", etc.
+- INTERPRET INTENT: Understand what the user is really asking for, even if they use different terminology than what appears in the messages
+- SYNTHESIZE INFORMATION: If the question asks for a summary or overview of a topic, provide a brief synthesis of all relevant information from the messages, even if it's spread across multiple messages
 - Be concise and direct - answer the question directly without unnecessary elaboration
 - If multiple people mentioned something, you can reference who said what
 - Preserve the language of the question (if asked in Hebrew, answer in Hebrew; if in English, answer in English)
-- If the question is too general or vague and you cannot find a specific answer, suggest asking a more specific question
+- ONLY if you truly cannot find ANY relevant information in the messages (even after semantic interpretation), then state:
+  - Hebrew: "לא מצאתי מידע רלוונטי בשיחה. נסה לשאול שאלה ספציפית יותר."
+  - English: "I couldn't find relevant information in the conversation. Try asking a more specific question."
 
 The messages are formatted as: [timestamp] sender: message text
 
-Answer the user's question now based on the messages provided.`;
+Answer the user's question now based on the messages provided, using semantic understanding to find relevant information even if the exact words differ.`;
 
     // Format messages for the API
     const messageHistory = messages.map(function(msg) {
@@ -51,7 +55,7 @@ Answer the user's question now based on the messages provided.`;
             ...messageHistory,
             questionMessage
         ],
-        temperature: 0.3, // Lower temperature for more factual, consistent answers
+        temperature: 0.5, // Balanced temperature for factual but semantically flexible answers
     });
 
     return completion.choices[0].message.content;
