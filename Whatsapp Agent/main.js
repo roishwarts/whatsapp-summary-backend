@@ -164,16 +164,17 @@ function extractChatNameFromQuestionText(text) {
         /שאל\s+(?:את|על|ב)\s+(?:קבוצ[הת]\s+)?(.+?)(?:\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
         /(?:מה|איך|מתי|איפה|למה|מי)\s+(?:קרה|אמר|כתב|שלח|היה|יש|היו)\s+(?:ב|ב-|בקבוצ[הת]|ב-קבוצ[הת])\s*(.+?)(?:\s+היום|\s+אתמול|\?|$)/,
         /(?:מה|איך|מתי|איפה|למה|מי)\s+(?:קרה|אמר|כתב|שלח|היה|יש|היו)\s+(?:עם|ל)\s+(.+?)(?:\s+היום|\s+אתמול|\?|$)/,
-        // Add pattern for "בשיחה עם" (conversation with)
-        /בשיחה\s+עם\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
-        // Add pattern for "בקבוצת" (in group)
-        /בקבוצ[הת]\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
-        // Add pattern for "עם" at start or after comma
-        /(?:^|,)\s*עם\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
-        // Add pattern for "ל" (to/for) at start or after comma
-        /(?:^|,)\s*ל\s+(.+?)(?:\s*,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
-        // Generic fallback: look for common prefixes
-        /(?:בקבוצ[הת]|קבוצ[הת]|עם|ל)\s+(.+?)(?:\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/
+        // Add pattern for "בשיחה עם" (conversation with) - stop at verbs or question words
+        // Match up to 2 words (for names like "רתם אנין") then stop at common verbs
+        /בשיחה\s+עם\s+([^\s]+(?:\s+[^\s]+)?)(?:\s+(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|קרהו|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח|קרה|נדבר|נאמר|נכתב|נשלח)|,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Add pattern for "בקבוצת" (in group) - stop at verbs or question words
+        /בקבוצ[הת]\s+([^\s]+(?:\s+[^\s]+)?)(?:\s+(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|קרהו|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח|קרה|נדבר|נאמר|נכתב|נשלח)|,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Add pattern for "עם" at start or after comma - stop at verbs
+        /(?:^|,)\s*עם\s+([^\s]+(?:\s+[^\s]+)?)(?:\s+(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|קרהו|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח|קרה|נדבר|נאמר|נכתב|נשלח)|,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Add pattern for "ל" (to/for) at start or after comma - stop at verbs
+        /(?:^|,)\s*ל\s+([^\s]+(?:\s+[^\s]+)?)(?:\s+(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|קרהו|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח|קרה|נדבר|נאמר|נכתב|נשלח)|,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
+        // Generic fallback: look for common prefixes - stop at verbs
+        /(?:בקבוצ[הת]|קבוצ[הת]|עם|ל)\s+([^\s]+(?:\s+[^\s]+)?)(?:\s+(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|קרהו|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח|קרה|נדבר|נאמר|נכתב|נשלח)|,|\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/
     ];
 
     for (const pattern of hebrewQuestionPatterns) {
@@ -218,18 +219,31 @@ function extractQuestionFromText(text, chatName) {
 
     // Remove common question prefixes (Hebrew)
     question = question.replace(/^(?:שאל|תשאל)\s+(?:את|על|ב)\s+(?:קבוצ[הת]\s+)?[^\s]+\s*/i, '');
-    // Remove "בשיחה עם" pattern
-    question = question.replace(/^בשיחה\s+עם\s+[^\s,]+\s*,?\s*/i, '');
+    
+    // Remove "בשיחה עם" pattern - stop at verbs like "דיברו"
+    // Match "בשיחה עם" + chat name (1-2 words) + optional comma/space + verb
+    if (chatName) {
+        const chatNameEscaped = chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Pattern: "בשיחה עם" + chat name + (comma/space + verb or end)
+        question = question.replace(
+            new RegExp(`^בשיחה\\s+עם\\s+${chatNameEscaped}(?:\\s*,?\\s*(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח))?\\s*`, 'gi'),
+            ''
+        );
+    } else {
+        // Fallback: remove "בשיחה עם" + up to 2 words + verb
+        question = question.replace(/^בשיחה\s+עם\s+[^\s]+(?:\s+[^\s]+)?(?:\s*,?\s*(?:דיברו|אמרו|כתבו|שלחו|היה|היו|קרה|נאמר|נכתב|נשלח|נדבר|דיבר|אמר|כתב|שלח))?\s*/i, '');
+    }
+    
     // Remove common question prefixes (English)
     question = question.replace(/^(?:ask|question)\s+(?:about|for|in)\s+[^\s]+\s*/i, '');
 
-    // Remove group name if present
+    // Remove group name if present (with various prefixes)
     if (chatName) {
-        // Remove group name with various prefixes
+        const chatNameEscaped = chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const patterns = [
-            new RegExp(`(?:בשיחה\\s+עם|בקבוצ[הת]|קבוצ[הת]|עם|ל)\\s*${chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*,?\\s*`, 'gi'),
-            new RegExp(`(?:in|about|with|to)\\s*${chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*,?\\s*`, 'gi'),
-            new RegExp(chatName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+            new RegExp(`(?:בקבוצ[הת]|קבוצ[הת]|עם|ל)\\s*${chatNameEscaped}\\s*,?\\s*`, 'gi'),
+            new RegExp(`(?:in|about|with|to)\\s*${chatNameEscaped}\\s*,?\\s*`, 'gi'),
+            new RegExp(chatNameEscaped, 'gi')
         ];
         for (const pattern of patterns) {
             question = question.replace(pattern, '');
