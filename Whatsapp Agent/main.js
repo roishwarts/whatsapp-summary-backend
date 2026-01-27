@@ -680,17 +680,19 @@ function isUIWindowAvailable() {
 }
 
 // --- 3. Vercel Backend Integration (FIXED MAPPING) ---
-async function callVercelBackend(chatName, messages) {
+async function callVercelBackend(chatName, messages, recipientInfoOverride = null) {
     const VERCEL_URL = 'https://whatsapp-summary-backend.vercel.app/api/summarize-and-deliver';
+    
+    const recipientInfo = recipientInfoOverride || {
+        recipientPhoneNumber: store.get('globalSettings.recipientPhoneNumber'),
+        recipientEmail: store.get('globalSettings.recipientEmail')
+    };
     
     const payload = {
         chatName: chatName,
         messages: messages,
         // Match the "recipientInfo" object your Vercel code expects
-        recipientInfo: {
-            recipientPhoneNumber: store.get('globalSettings.recipientPhoneNumber'),
-            recipientEmail: store.get('globalSettings.recipientEmail')
-        }
+        recipientInfo: recipientInfo
     };
 
     console.log(`[Network] Sending to Vercel for ${chatName}. Target: ${payload.recipientInfo.recipientPhoneNumber}`);
@@ -1778,38 +1780,28 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
 
 /**
  * Send a notification to the user when no messages are found for a chat.
+ * Uses the Vercel backend (which has Twilio credentials) to send the notification.
  */
 async function sendNoMessagesNotification(chatName, sender) {
-    const twilioAccountSid = store.get('globalSettings.twilioAccountSid');
-    const twilioAuthToken = store.get('globalSettings.twilioAuthToken');
-    const twilioWhatsAppNumber = store.get('globalSettings.twilioWhatsAppNumber');
-    
-    if (!twilioAccountSid || !twilioAuthToken || !twilioWhatsAppNumber) {
-        console.warn('[No Messages] Twilio credentials not configured - cannot send notification');
-        return;
-    }
-    
     try {
-        const twilioClient = twilio(twilioAccountSid, twilioAuthToken);
+        // Get recipient info from store
+        const recipientPhoneNumber = store.get('globalSettings.recipientPhoneNumber');
+        const recipientEmail = store.get('globalSettings.recipientEmail');
         
-        // Remove 'whatsapp:' prefix if present
-        const phoneNumber = sender.startsWith('whatsapp:') 
-            ? sender.replace('whatsapp:', '') 
-            : sender;
+        // For on-demand summaries, use the sender from the command
+        const recipientInfo = {
+            recipientPhoneNumber: sender ? (sender.startsWith('whatsapp:') ? sender.replace('whatsapp:', '') : sender) : recipientPhoneNumber,
+            recipientEmail: recipientEmail
+        };
         
-        // Determine message language based on chat name (Hebrew if contains Hebrew characters)
-        const isHebrew = /[\u0590-\u05FF]/.test(chatName);
-        const message = isHebrew 
-            ? `לא נמצאו הודעות מהיום בקבוצה "${chatName}".`
-            : `No messages found from today in the chat "${chatName}".`;
+        // Call Vercel backend with empty messages - it will handle sending the notification
+        const result = await callVercelBackend(chatName, [], recipientInfo);
         
-        await twilioClient.messages.create({
-            from: `whatsapp:${twilioWhatsAppNumber}`,
-            to: `whatsapp:${phoneNumber}`,
-            body: message
-        });
-        
-        console.log(`[No Messages] Notification sent to ${sender} for chat "${chatName}"`);
+        if (result.error) {
+            console.error('[No Messages] Error calling Vercel backend:', result.error);
+        } else {
+            console.log(`[No Messages] Notification sent via Vercel backend for chat "${chatName}"`);
+        }
     } catch (error) {
         console.error('[No Messages] Error sending notification:', error);
     }

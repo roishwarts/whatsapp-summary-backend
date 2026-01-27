@@ -327,8 +327,35 @@ module.exports = async (req, res) => {
     // Get data sent from the Electron client
     const { messages, chatName, recipientInfo } = req.body;
 
-    if (!messages || messages.length === 0 || !chatName || !recipientInfo) {
-        return res.status(400).json({ error: 'Missing required data (messages, chatName, or recipientInfo).' });
+    if (!chatName || !recipientInfo) {
+        return res.status(400).json({ error: 'Missing required data (chatName or recipientInfo).' });
+    }
+
+    // Handle case where no messages are found
+    if (!messages || messages.length === 0) {
+        console.log(`[Summarize] No messages found for chat: ${chatName}`);
+        
+        // Determine message language based on chat name
+        const isHebrew = /[\u0590-\u05FF]/.test(chatName);
+        const noMessagesText = isHebrew 
+            ? `לא נמצאו הודעות מהיום בקבוצה "${chatName}".`
+            : `No messages found from today in the chat "${chatName}".`;
+        
+        // Send notification via WhatsApp if recipient phone number is provided
+        let whatsappStatus = 'WhatsApp Skipped: No recipient number.';
+        if (recipientInfo.recipientPhoneNumber) {
+            whatsappStatus = await sendWhatsAppMessage(
+                recipientInfo.recipientPhoneNumber,
+                noMessagesText,
+                chatName
+            );
+        }
+        
+        // Return response indicating no messages found
+        return res.status(200).json({
+            summary: noMessagesText,
+            deliveryStatus: { whatsapp: whatsappStatus, email: 'Email Skipped: No messages to summarize.' }
+        });
     }
 
     try {
