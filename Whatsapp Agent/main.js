@@ -670,6 +670,16 @@ async function callVercelQuestionAPI(chatName, messages, question) {
     };
 
     console.log(`[Network] Sending question to Vercel for ${chatName}. Question: "${question}"`);
+    console.log(`[Network] Payload check - chatName: "${chatName}", messages: ${Array.isArray(messages) ? messages.length : typeof messages}, question: "${question}"`);
+    
+    // Validate payload before sending
+    if (!chatName || !messages || !Array.isArray(messages) || messages.length === 0 || !question) {
+        const missing = [];
+        if (!chatName) missing.push('chatName');
+        if (!messages || !Array.isArray(messages) || messages.length === 0) missing.push('messages');
+        if (!question) missing.push('question');
+        throw new Error(`Invalid payload - missing: ${missing.join(', ')}`);
+    }
 
     try {
         const response = await fetch(VERCEL_URL, {
@@ -1659,9 +1669,49 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
     const pendingQuestion = whatsappWindow._pendingQuestion;
     delete whatsappWindow._pendingQuestion;
 
+    // Use question from pendingQuestion to ensure consistency
+    const questionText = pendingQuestion.question || question;
+
+    // Debug logging
+    console.log(`[Question] Debug - chatName: "${chatName}", questionText: "${questionText}", messages count: ${messages ? messages.length : 'null'}`);
+    if (messages && messages.length > 0) {
+        console.log(`[Question] Debug - First message sample:`, JSON.stringify(messages[0]));
+    }
+
     try {
+        // Check if we have messages
+        if (!messages || messages.length === 0) {
+            const errorMsg = `No messages found for chat "${chatName}". Please check:` +
+                `\n- The chat name matches exactly (case-sensitive)` +
+                `\n- There are messages from today in this chat` +
+                `\n- The chat exists in your WhatsApp`;
+            
+            console.warn(`[Question] ${errorMsg}`);
+            
+            // Send error message back to user
+            if (pendingQuestion.sender) {
+                const twilioAccountSid = store.get('globalSettings.twilioAccountSid');
+                const twilioAuthToken = store.get('globalSettings.twilioAuthToken');
+                const twilioWhatsAppNumber = store.get('globalSettings.twilioWhatsAppNumber');
+                
+                if (twilioAccountSid && twilioAuthToken && twilioWhatsAppNumber) {
+                    try {
+                        const twilioClient = twilio(twilioAccountSid, twilioAuthToken);
+                        await twilioClient.messages.create({
+                            from: `whatsapp:${twilioWhatsAppNumber}`,
+                            to: `whatsapp:${pendingQuestion.sender}`,
+                            body: errorMsg
+                        });
+                    } catch (twilioError) {
+                        console.error('[Question] Error sending error message via Twilio:', twilioError);
+                    }
+                }
+            }
+            return;
+        }
+
         // Call Vercel API to get answer
-        const result = await callVercelQuestionAPI(chatName, messages, question);
+        const result = await callVercelQuestionAPI(chatName, messages, questionText);
         
         if (result.error) {
             throw new Error(result.answer || 'Failed to get answer from API');
@@ -1673,7 +1723,7 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
         // Send answer back via WhatsApp to the sender using Twilio
         if (pendingQuestion.sender) {
             // Format the answer message
-            const answerMessage = `Question about ${chatName}:\n${question}\n\nAnswer:\n${answer}`;
+            const answerMessage = `Question about ${chatName}:\n${questionText}\n\nAnswer:\n${answer}`;
             
             // Get Twilio credentials from store
             const twilioAccountSid = store.get('globalSettings.twilioAccountSid');

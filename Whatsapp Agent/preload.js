@@ -2218,17 +2218,30 @@ ipcRenderer.on('app:command-answer-question', async (event, { chatName, question
     console.log(`[Preload] Received question command for chat: "${chatName}", question: "${question}"`);
     try {
         // First, open the chat
-        await clickChat(chatName);
+        const chatResult = await clickChat(chatName);
+        if (!chatResult || (typeof chatResult === 'object' && chatResult.success === false)) {
+            const errorMsg = typeof chatResult === 'object' && chatResult.error 
+                ? chatResult.error 
+                : `Could not open chat: ${chatName}`;
+            throw new Error(errorMsg);
+        }
         
-        // Wait for chat to open and messages to load
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for chat to open and messages to load (longer wait for message extraction)
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
         // Extract messages (today's messages, same as daily brief)
         const messages = await getMessages();
         
         console.log(`[Preload] Extracted ${messages.length} messages for question answering`);
         
-        // Send messages and question back to main process
+        if (messages.length === 0) {
+            console.warn(`[Preload] No messages found for chat "${chatName}". This could mean:`);
+            console.warn(`  - The chat name doesn't match exactly`);
+            console.warn(`  - There are no messages from today in this chat`);
+            console.warn(`  - The chat wasn't opened properly`);
+        }
+        
+        // Send messages and question back to main process (even if 0 messages, let main handle it)
         ipcRenderer.send('whatsapp:messages-for-question', {
             chatName: chatName,
             question: question,
