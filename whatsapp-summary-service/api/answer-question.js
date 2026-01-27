@@ -97,11 +97,22 @@ module.exports = async (req, res) => {
         const answer = await callOpenAIQuestionAPI(messages, chatName, question);
         
         // Send answer back via WhatsApp (same as daily brief)
-        console.log(`[Answer-Question API] Sending answer to sender: ${sender}`);
-        const whatsappStatus = await sendWhatsAppAnswer(sender, chatName, question, answer);
-        console.log(`[Answer-Question API] WhatsApp status: ${whatsappStatus}`);
+        let whatsappStatus = 'WhatsApp Skipped: No sender.';
+        if (sender) {
+            console.log(`[Answer-Question API] Sending answer to sender: ${sender}`);
+            try {
+                whatsappStatus = await sendWhatsAppAnswer(sender, chatName, question, answer);
+                console.log(`[Answer-Question API] WhatsApp status: ${whatsappStatus}`);
+            } catch (sendError) {
+                console.error('[Answer-Question API] Error sending WhatsApp:', sendError);
+                whatsappStatus = `WhatsApp Delivery Failed: ${sendError.message}`;
+            }
+        } else {
+            console.warn('[Answer-Question API] No sender provided, cannot send answer via WhatsApp');
+        }
         
         // Return the answer and delivery status back to the Electron App (same format as daily brief)
+        // ALWAYS include deliveryStatus, even if sending failed
         const response = {
             answer: answer,
             deliveryStatus: { whatsapp: whatsappStatus }
