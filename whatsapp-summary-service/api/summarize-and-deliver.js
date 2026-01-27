@@ -201,10 +201,17 @@ FINAL OUTPUT RULES (MUST FOLLOW EXACTLY):
 OUTPUT FORMAT (USER SEES THIS):
 
 TL;DR
-(max 1–2 short sentences)
+(2-4 sentences providing a comprehensive overview)
+- Include general topics discussed in the conversation
+- Mention key themes, subjects, or areas of focus
+- Highlight the overall context and important points
+- Be informative but concise - give a meaningful summary of what the conversation was about
+- Use semantic understanding to synthesize information even if exact terminology differs
 
 ACTION ITEMS
 - Task (include owner ONLY if explicitly mentioned)
+- DO NOT repeat information already mentioned in TL;DR
+- Only include specific actionable tasks that weren't already covered in the overview
 
 DATES
 - Format: "YYYY-MM-DD, HH:MM – context description"
@@ -212,12 +219,17 @@ DATES
 - If no time mentioned: "YYYY-MM-DD – context description"
 - Example: "2024-01-23 – project deadline"
 - Always include clear context about what the date is for
+- DO NOT repeat dates already mentioned in TL;DR unless adding specific time details
 
 DECISIONS
 - Decision made
+- DO NOT repeat decisions already mentioned in TL;DR
+- Only include specific decisions that need to be highlighted separately
 
 IMPORTANT UPDATES
 - Important update
+- DO NOT repeat updates already mentioned in TL;DR
+- Only include updates that add new information beyond what was covered in the overview
 
 LANGUAGE ENFORCEMENT (MANDATORY):
 - First, detect the primary language of the input messages.
@@ -235,6 +247,9 @@ CONTENT RULES:
 - Only include explicit, important information
 - Ignore chatter, opinions, jokes, repetitions
 - If something is not clearly important, exclude it
+- TL;DR should provide meaningful context about the conversation topics
+- Use semantic understanding to identify related concepts and themes
+- Ensure no duplication between TL;DR and other sections
 
 Generate the final daily brief now.
 `
