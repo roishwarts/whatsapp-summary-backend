@@ -2170,6 +2170,40 @@ async function getMessages() {
     return messagesFromToday;
 }
 
+// Function 3.1: Get messages for question answering (uses all messages if no messages from today)
+async function getMessagesForQuestion() {
+    // 1. First, scroll and load the full message history
+    await loadFullHistory();
+    
+    // 2. Use the collected messages (already extracted during scrolling)
+    const allCollectedMessages = Array.from(collectedMessages.values());
+    const allMessages = allCollectedMessages.map(m => ({
+        sender: m.sender,
+        time: m.time,
+        text: m.text
+    }));
+    const messagesFromToday = allCollectedMessages
+        .filter(m => m.isFromToday)
+        .map(m => ({
+            sender: m.sender,
+            time: m.time,
+            text: m.text
+        }));
+
+    console.log(`[Question] Using ${allMessages.length} total messages, ${messagesFromToday.length} from today.`);
+    
+    // For questions: if there are messages from today, use those; otherwise use all messages
+    const messagesToUse = messagesFromToday.length > 0 ? messagesFromToday : allMessages;
+    
+    if (messagesToUse.length === 0) {
+        console.warn(`[Question] No messages found at all for this chat.`);
+    } else if (messagesFromToday.length === 0) {
+        console.log(`[Question] No messages from today, using all ${allMessages.length} available messages.`);
+    }
+    
+    return messagesToUse;
+}
+
 
 // --- 3. IPC Command Listeners (Handle Commands from Main) ---
 
@@ -2229,19 +2263,12 @@ ipcRenderer.on('app:command-answer-question', async (event, { chatName, question
         // Wait for chat to open and messages to load (longer wait for message extraction)
         await new Promise(resolve => setTimeout(resolve, 3000));
         
-        // Extract messages (today's messages, same as daily brief)
-        const messages = await getMessages();
+        // Extract messages for question answering (uses all messages if no messages from today)
+        const messages = await getMessagesForQuestion();
         
         console.log(`[Preload] Extracted ${messages.length} messages for question answering`);
         
-        if (messages.length === 0) {
-            console.warn(`[Preload] No messages found for chat "${chatName}". This could mean:`);
-            console.warn(`  - The chat name doesn't match exactly`);
-            console.warn(`  - There are no messages from today in this chat`);
-            console.warn(`  - The chat wasn't opened properly`);
-        }
-        
-        // Send messages and question back to main process (even if 0 messages, let main handle it)
+        // Send messages and question back to main process (even if 0 messages, let API handle it)
         ipcRenderer.send('whatsapp:messages-for-question', {
             chatName: chatName,
             question: question,

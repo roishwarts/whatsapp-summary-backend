@@ -1680,35 +1680,9 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
     }
 
     try {
-        // Check if we have messages
+        // Allow 0 messages - let the API handle it gracefully and return a helpful message
         if (!messages || messages.length === 0) {
-            const errorMsg = `No messages found for chat "${chatName}". Please check:` +
-                `\n- The chat name matches exactly (case-sensitive)` +
-                `\n- There are messages from today in this chat` +
-                `\n- The chat exists in your WhatsApp`;
-            
-            console.warn(`[Question] ${errorMsg}`);
-            
-            // Send error message back to user
-            if (pendingQuestion.sender) {
-                const twilioAccountSid = store.get('globalSettings.twilioAccountSid');
-                const twilioAuthToken = store.get('globalSettings.twilioAuthToken');
-                const twilioWhatsAppNumber = store.get('globalSettings.twilioWhatsAppNumber');
-                
-                if (twilioAccountSid && twilioAuthToken && twilioWhatsAppNumber) {
-                    try {
-                        const twilioClient = twilio(twilioAccountSid, twilioAuthToken);
-                        await twilioClient.messages.create({
-                            from: `whatsapp:${twilioWhatsAppNumber}`,
-                            to: `whatsapp:${pendingQuestion.sender}`,
-                            body: errorMsg
-                        });
-                    } catch (twilioError) {
-                        console.error('[Question] Error sending error message via Twilio:', twilioError);
-                    }
-                }
-            }
-            return;
+            console.warn(`[Question] No messages found for chat "${chatName}". API will handle this gracefully.`);
         }
 
         // Call Vercel API to get answer (server will send it back via Twilio)

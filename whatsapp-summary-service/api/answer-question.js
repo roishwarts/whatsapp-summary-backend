@@ -16,10 +16,13 @@ async function callOpenAIQuestionAPI(messages, chatName, question) {
 CRITICAL RULES:
 - You MUST answer based ONLY on the information in the provided messages
 - Do NOT use any external knowledge or information not present in the messages
-- If the answer is not in the messages, clearly state: "I cannot find this information in the messages from ${chatName}"
+- If the answer is not in the messages, clearly state (in the same language as the question):
+  - Hebrew: "לא ברור מהשיחה. נסה לשאול שאלה ספציפית יותר."
+  - English: "It's not clear from the conversation. Try asking a more specific question."
 - Be concise and direct - answer the question directly without unnecessary elaboration
 - If multiple people mentioned something, you can reference who said what
 - Preserve the language of the question (if asked in Hebrew, answer in Hebrew; if in English, answer in English)
+- If the question is too general or vague and you cannot find a specific answer, suggest asking a more specific question
 
 The messages are formatted as: [timestamp] sender: message text
 
@@ -86,15 +89,33 @@ module.exports = async (req, res) => {
     // Get data sent from the Electron client
     const { messages, chatName, question, sender } = req.body;
 
-    if (!messages || messages.length === 0 || !chatName || !question) {
+    if (!chatName || !question) {
         return res.status(400).json({ 
-            error: 'Missing required data (messages, chatName, or question).' 
+            error: 'Missing required data (chatName or question).' 
+        });
+    }
+
+    // Allow empty messages array - we'll handle it gracefully in the API
+    if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ 
+            error: 'Invalid messages data.' 
         });
     }
 
     try {
-        // Generate answer based on messages
-        const answer = await callOpenAIQuestionAPI(messages, chatName, question);
+        // Handle case where there are no messages
+        let answer;
+        if (!messages || messages.length === 0) {
+            // No messages available - return a helpful message
+            answer = 'לא מצאתי הודעות בקבוצה זו. נסה לשאול שאלה ספציפית יותר או לבדוק שהשם של הקבוצה נכון.';
+            // English fallback
+            if (question && /[a-zA-Z]/.test(question)) {
+                answer = 'I cannot find any messages in this chat. Please try asking a more specific question or verify the chat name is correct.';
+            }
+        } else {
+            // Generate answer based on messages
+            answer = await callOpenAIQuestionAPI(messages, chatName, question);
+        }
         
         // Send answer back via WhatsApp (same as daily brief)
         let whatsappStatus = 'WhatsApp Skipped: No sender.';
