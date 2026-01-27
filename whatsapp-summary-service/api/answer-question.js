@@ -97,13 +97,17 @@ module.exports = async (req, res) => {
         const answer = await callOpenAIQuestionAPI(messages, chatName, question);
         
         // Send answer back via WhatsApp (same as daily brief)
+        console.log(`[Answer-Question API] Sending answer to sender: ${sender}`);
         const whatsappStatus = await sendWhatsAppAnswer(sender, chatName, question, answer);
+        console.log(`[Answer-Question API] WhatsApp status: ${whatsappStatus}`);
         
-        // Return the answer and delivery status back to the Electron App
-        res.status(200).json({ 
+        // Return the answer and delivery status back to the Electron App (same format as daily brief)
+        const response = {
             answer: answer,
             deliveryStatus: { whatsapp: whatsappStatus }
-        });
+        };
+        console.log(`[Answer-Question API] Returning response:`, JSON.stringify(response, null, 2));
+        res.status(200).json(response);
 
     } catch (e) {
         // Catch critical errors (like a failed OpenAI call)
