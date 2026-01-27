@@ -1,8 +1,10 @@
-// Install these dependencies in the Vercel project: openai
+// Install these dependencies in the Vercel project: openai, twilio
 const { OpenAI } = require('openai');
+const twilio = require('twilio');
 
 // --- Initialization: Uses Environment Variables (Set in Vercel Settings) ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 /**
  * Call OpenAI API to answer a question based on WhatsApp messages.
@@ -52,6 +54,23 @@ Answer the user's question now based on the messages provided.`;
     return completion.choices[0].message.content;
 }
 
+async function sendWhatsAppAnswer(recipientPhoneNumber, chatName, question, answer) {
+    if (!recipientPhoneNumber) return 'WhatsApp Skipped: No recipient number.';
+    try {
+        const answerMessage = `Question about ${chatName}:\n${question}\n\nAnswer:\n${answer}`;
+        const message = await twilioClient.messages.create({
+            from: process.env.TWILIO_WHATSAPP_NUMBER,
+            to: `whatsapp:${recipientPhoneNumber}`,
+            body: answerMessage
+        });
+        return `WhatsApp sent: ${message.sid}`;
+    } catch (e) {
+        // Log the error but don't fail the whole function
+        console.error('Twilio Error:', e.message);
+        return `WhatsApp Delivery Failed: ${e.message}`;
+    }
+}
+
 // The Main Serverless Function Handler
 module.exports = async (req, res) => {
     // Vercel only allows POST for this operation (receiving data from Electron)
@@ -60,7 +79,7 @@ module.exports = async (req, res) => {
     }
 
     // Get data sent from the Electron client
-    const { messages, chatName, question } = req.body;
+    const { messages, chatName, question, sender } = req.body;
 
     if (!messages || messages.length === 0 || !chatName || !question) {
         return res.status(400).json({ 
@@ -72,9 +91,13 @@ module.exports = async (req, res) => {
         // Generate answer based on messages
         const answer = await callOpenAIQuestionAPI(messages, chatName, question);
         
-        // Return the answer back to the Electron App
+        // Send answer back via WhatsApp (same as daily brief)
+        const whatsappStatus = await sendWhatsAppAnswer(sender, chatName, question, answer);
+        
+        // Return the answer and delivery status back to the Electron App
         res.status(200).json({ 
-            answer: answer
+            answer: answer,
+            deliveryStatus: { whatsapp: whatsappStatus }
         });
 
     } catch (e) {

@@ -660,13 +660,14 @@ async function callVercelBackend(chatName, messages) {
 }
 
 // --- 3.1. Vercel Question API Integration ---
-async function callVercelQuestionAPI(chatName, messages, question) {
+async function callVercelQuestionAPI(chatName, messages, question, sender) {
     const VERCEL_URL = 'https://whatsapp-summary-backend.vercel.app/api/answer-question';
     
     const payload = {
         chatName: chatName,
         messages: messages,
-        question: question
+        question: question,
+        sender: sender // Send sender so server can send answer back via Twilio
     };
 
     console.log(`[Network] Sending question to Vercel for ${chatName}. Question: "${question}"`);
@@ -1710,44 +1711,23 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
             return;
         }
 
-        // Call Vercel API to get answer
-        const result = await callVercelQuestionAPI(chatName, messages, questionText);
+        // Call Vercel API to get answer (server will send it back via Twilio)
+        const result = await callVercelQuestionAPI(chatName, messages, questionText, pendingQuestion.sender);
         
         if (result.error) {
             throw new Error(result.answer || 'Failed to get answer from API');
         }
 
         const answer = result.answer;
-        console.log(`[Question] Got answer for "${chatName}": ${answer.substring(0, 100)}...`);
-
-        // Send answer back via WhatsApp to the sender using Twilio
-        if (pendingQuestion.sender) {
-            // Format the answer message
-            const answerMessage = `Question about ${chatName}:\n${questionText}\n\nAnswer:\n${answer}`;
-            
-            // Get Twilio credentials from store
-            const twilioAccountSid = store.get('globalSettings.twilioAccountSid');
-            const twilioAuthToken = store.get('globalSettings.twilioAuthToken');
-            const twilioWhatsAppNumber = store.get('globalSettings.twilioWhatsAppNumber');
-            
-            if (twilioAccountSid && twilioAuthToken && twilioWhatsAppNumber) {
-                try {
-                    const twilioClient = twilio(twilioAccountSid, twilioAuthToken);
-                    await twilioClient.messages.create({
-                        from: `whatsapp:${twilioWhatsAppNumber}`,
-                        to: `whatsapp:${pendingQuestion.sender}`,
-                        body: answerMessage
-                    });
-                    console.log(`[Question] Answer sent back to ${pendingQuestion.sender} via Twilio`);
-                } catch (twilioError) {
-                    console.error('[Question] Error sending answer via Twilio:', twilioError);
-                    console.warn('[Question] Twilio credentials may be missing or invalid');
-                }
-            } else {
-                console.warn('[Question] Twilio credentials not configured - cannot send answer back');
-            }
-        } else {
-            console.warn('[Question] No sender information available - cannot send answer back');
+        const deliveryStatus = result.deliveryStatus || {};
+        
+        console.log(`[Question] ✅ Got answer for "${chatName}": ${answer}`);
+        console.log(`[Question] Delivery status: ${deliveryStatus.whatsapp || 'Unknown'}`);
+        
+        if (deliveryStatus.whatsapp && deliveryStatus.whatsapp.includes('sent')) {
+            console.log(`[Question] ✅ Answer sent back to ${pendingQuestion.sender} via Twilio`);
+        } else if (deliveryStatus.whatsapp) {
+            console.warn(`[Question] ⚠️ WhatsApp delivery issue: ${deliveryStatus.whatsapp}`);
         }
 
         // Notify that question was answered
