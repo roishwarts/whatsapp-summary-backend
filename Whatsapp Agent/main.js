@@ -70,9 +70,10 @@ function handleIncomingWhatsAppCommand(message, sender) {
         const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
         const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
         const listRegex = /(list|רשימה|הודעות מתוזמנות|איזה הודעות)/i;
+        const cancelLastRegexEdit = /^(בטל|cancel)\s*$/i;
         const deleteRegex = /^(delete|מחק|בטל|cancel)\s*\d+/i;
         const editRegex = /^(edit|ערוך)\s*\d+/i;
-        if (scheduleRegex.test(text) || summaryRegex.test(text) || isQuestionIntent(text) || listRegex.test(text) || deleteRegex.test(text) || editRegex.test(text)) {
+        if (scheduleRegex.test(text) || summaryRegex.test(text) || isQuestionIntent(text) || listRegex.test(text) || cancelLastRegexEdit.test(text.trim()) || deleteRegex.test(text) || editRegex.test(text)) {
             delete _pendingEditBySender[sender];
         } else {
             handleEditPayload(text, sender);
@@ -83,13 +84,15 @@ function handleIncomingWhatsAppCommand(message, sender) {
     const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
     const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
     const listRegex = /(list|רשימה|הודעות מתוזמנות|איזה הודעות)/i;
+    const cancelLastRegex = /^(בטל|cancel)\s*$/i;
     const deleteMatch = text.match(/^(delete|מחק|בטל|cancel)\s*(\d+)/i);
     const editMatch = text.match(/^(edit|ערוך)\s*(\d+)/i);
 
     const isSchedule = scheduleRegex.test(text);
     const isSummary = summaryRegex.test(text);
     const isList = listRegex.test(text);
-    const isDelete = deleteMatch != null;
+    const isCancelLast = cancelLastRegex.test(text.trim());
+    const isDelete = !isCancelLast && deleteMatch != null;
     const isEdit = editMatch != null;
 
     if (isSchedule) {
@@ -104,6 +107,9 @@ function handleIncomingWhatsAppCommand(message, sender) {
     } else if (isList) {
         console.log('[Pusher Command] Detected LIST intent');
         handleListScheduledMessages(sender);
+    } else if (isCancelLast) {
+        console.log('[Pusher Command] Detected CANCEL LAST (בטל) intent');
+        handleCancelLastScheduledMessage(sender);
     } else if (isDelete) {
         const n = parseInt(deleteMatch[2], 10);
         console.log('[Pusher Command] Detected DELETE intent, task', n);
@@ -639,11 +645,10 @@ function handleScheduleCommandFromText(text, sender) {
     updatePowerSaveBlocker();
 
     if (sender) {
-        const timeStr = `${date} ${time}`;
         const isHebrew = /[\u0590-\u05FF]/.test(text);
         const confirmationMessage = isHebrew
-            ? `תזמנתי לך הודעה ל${chatName} ל${timeStr}. תוכן: '${message}'. השב 'cancel' לביטול.`
-            : `I've scheduled your message to ${chatName} for ${timeStr}. Content: '${message}'. Reply 'cancel' to stop this.`;
+            ? `תזמנתי לך הודעה ל${chatName} בתאריך ${date} בשעה ${time}.\nתוכן ההודעה: '${message}'. השב 'בטל' לביטול.`
+            : `I've scheduled your message to ${chatName} on date ${date} at time ${time}.\nMessage content: '${message}'. Reply 'cancel' to cancel.`;
         callSendNotification(sender, confirmationMessage).catch(() => {});
     }
 
@@ -679,6 +684,30 @@ function handleListScheduledMessages(sender) {
         return `${i + 1}. ${m.chatName}${sep}${timeStr} — ${preview}`;
     });
     callSendNotification(sender, lines.join('\n')).catch(() => {});
+}
+
+function handleCancelLastScheduledMessage(sender) {
+    const messages = store.get('scheduledMessages') || [];
+    let storeIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (!messages[i].sent && messages[i].sender === sender) {
+            storeIndex = i;
+            break;
+        }
+    }
+    if (storeIndex < 0) {
+        const isHebrew = /[\u0590-\u05FF]/.test(sender || '');
+        const msg = isHebrew ? 'אין הודעה מתוזמנת אחרונה שלך לביטול.' : 'No scheduled message from you to cancel.';
+        callSendNotification(sender, msg).catch(() => {});
+        return;
+    }
+    const removed = messages.splice(storeIndex, 1)[0];
+    store.set('scheduledMessages', messages);
+    updatePowerSaveBlocker();
+    if (isUIWindowAvailable() && uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(m => !m.sent));
+    const isHebrew = /[\u0590-\u05FF]/.test(removed.chatName || '');
+    const confirm = isHebrew ? `ביטלתי את ההודעה המתוזמנת ל${removed.chatName}.` : `Cancelled the scheduled message to ${removed.chatName}.`;
+    callSendNotification(sender, confirm).catch(() => {});
 }
 
 function handleDeleteScheduledMessage(taskNumber, sender) {
