@@ -719,10 +719,11 @@ async function handleScheduleCommandFromText(text, sender) {
 
     let { chatName, date, time, message } = parsed;
     const partialName = (parsed.chatName || '').trim();
+    // Resolve to full name from chat list (same list as schedule message UI)
     const list = await getChatListForResolve();
     const resolvedName = resolveChatName(chatName, list);
     if (resolvedName) chatName = resolvedName;
-    const multipleMatches = list && partialName && (list.filter((n) => (n || '').trim().includes(partialName)).length > 1);
+    const multipleMatches = !!(list && partialName && list.filter((n) => (n || '').trim().includes(partialName)).length > 1);
 
     // Reject if scheduled time is in the past
     const [y, mo, d] = date.split('-').map(Number);
