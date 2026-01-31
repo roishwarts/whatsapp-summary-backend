@@ -895,8 +895,11 @@ function checkMissedScheduledMessagesOnStartup() {
 }
 
 // --- 3. Vercel Backend Integration (FIXED MAPPING) ---
+// Base URL for Vercel API (match your deployment: whatsapp-summary-service.vercel.app or your project name)
+const VERCEL_API_BASE = process.env.VERCEL_API_BASE || 'https://whatsapp-summary-service.vercel.app';
+
 async function callVercelBackend(chatName, messages, recipientInfoOverride = null) {
-    const VERCEL_URL = 'https://whatsapp-summary-backend.vercel.app/api/summarize-and-deliver';
+    const VERCEL_URL = `${VERCEL_API_BASE}/api/summarize-and-deliver`;
     
     const recipientInfo = recipientInfoOverride || {
         recipientPhoneNumber: store.get('globalSettings.recipientPhoneNumber'),
@@ -930,7 +933,7 @@ async function callVercelBackend(chatName, messages, recipientInfoOverride = nul
 
 // --- 3.1. Vercel Question API Integration ---
 async function callVercelQuestionAPI(chatName, messages, question, sender) {
-    const VERCEL_URL = 'https://whatsapp-summary-backend.vercel.app/api/answer-question';
+    const VERCEL_URL = `${VERCEL_API_BASE}/api/answer-question`;
     
     const payload = {
         chatName: chatName,
@@ -977,11 +980,10 @@ async function callVercelQuestionAPI(chatName, messages, question, sender) {
 }
 
 // --- 3.2. Send notification via Vercel (confirmation, success, missed, list/edit/delete reply) ---
-const SEND_NOTIFICATION_URL = 'https://whatsapp-summary-backend.vercel.app/api/send-notification';
 async function callSendNotification(to, message) {
     if (!to || !message) return;
     try {
-        const response = await fetch(SEND_NOTIFICATION_URL, {
+        const response = await fetch(`${VERCEL_API_BASE}/api/send-notification`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ to, message })
