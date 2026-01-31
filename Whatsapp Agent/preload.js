@@ -2213,6 +2213,12 @@ ipcRenderer.on('app:request-chat-list', async () => {
     ipcRenderer.send('whatsapp:response-chat-list', list);
 });
 
+// Listener 1b: Main asks for chat list for name resolution (schedule confirmation)
+ipcRenderer.on('app:request-chat-list-for-resolve', async () => {
+    const list = await getChatList();
+    ipcRenderer.send('whatsapp:chat-list-for-resolve', list);
+});
+
 // Listener 2: Main asks to click a chat
 ipcRenderer.on('app:command-click-chat', (event, targetName) => {
     clickChat(targetName);
