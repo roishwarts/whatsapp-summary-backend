@@ -699,6 +699,23 @@ async function handleScheduleCommandFromText(text, sender) {
     const resolvedName = resolveChatName(chatName, list);
     if (resolvedName) chatName = resolvedName;
 
+    // Reject if scheduled time is in the past
+    const [y, mo, d] = date.split('-').map(Number);
+    const [h, min] = time.split(':').map(Number);
+    const scheduledTime = new Date(y, mo - 1, d, h, min, 0, 0);
+    const now = new Date();
+    if (scheduledTime.getTime() < now.getTime() - 60000) {
+        console.log(`[Pusher Command] Rejected: scheduled time ${date} ${time} is in the past`);
+        if (sender) {
+            const isHebrew = /[\u0590-\u05FF]/.test(text);
+            const msg = isHebrew
+                ? `הזמן שבחרת (${date} ${time}) כבר עבר. בחר תאריך ושעה בעתיד.`
+                : `The time you chose (${date} ${time}) is in the past. Please choose a future date and time.`;
+            callSendNotification(sender, msg).catch(() => {});
+        }
+        return;
+    }
+
     console.log(`[Pusher Command] Scheduling message for chat "${chatName}" at ${date} ${time} (sender: ${sender || 'unknown'})`);
     console.log('[Pusher Command] Scheduled message text:', message);
 
