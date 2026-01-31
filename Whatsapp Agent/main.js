@@ -1,5 +1,5 @@
 // --- 1. Module Imports ---
-const { app, BrowserWindow, session, ipcMain } = require('electron');
+const { app, BrowserWindow, session, ipcMain, powerSaveBlocker } = require('electron');
 const path = require('path'); 
 const Store = require('electron-store').default;
 const Pusher = require('pusher-js');
@@ -43,8 +43,13 @@ let automationInterval = null;
 let chatQueue = [];
 let currentlyRunningChat = null;
 let pusherInstance = null;
+let powerSaveBlockerId = null;
+const _pendingEditBySender = {};
 
 // --- 2.1. Real-time Command Handling (Pusher Listener) ---
+function getPendingScheduledMessages() {
+    return (store.get('scheduledMessages') || []).filter(m => !m.sent);
+}
 
 /**
  * Handle incoming WhatsApp command received via Pusher.
@@ -59,12 +64,33 @@ function handleIncomingWhatsAppCommand(message, sender) {
 
     console.log('[Pusher Command] Raw command:', { sender, text });
 
-    // Detect intent by keywords (English + Hebrew) - Priority order: Schedule > Summary > Question
+    // If sender has pending edit, treat as edit payload unless message is another command
+    const pendingEdit = _pendingEditBySender[sender];
+    if (pendingEdit) {
+        const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
+        const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
+        const listRegex = /(list|רשימה|הודעות מתוזמנות|איזה הודעות)/i;
+        const deleteRegex = /^(delete|מחק|בטל|cancel)\s*\d+/i;
+        const editRegex = /^(edit|ערוך)\s*\d+/i;
+        if (scheduleRegex.test(text) || summaryRegex.test(text) || isQuestionIntent(text) || listRegex.test(text) || deleteRegex.test(text) || editRegex.test(text)) {
+            delete _pendingEditBySender[sender];
+        } else {
+            handleEditPayload(text, sender);
+            return;
+        }
+    }
+
     const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
     const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
+    const listRegex = /(list|רשימה|הודעות מתוזמנות|איזה הודעות)/i;
+    const deleteMatch = text.match(/^(delete|מחק|בטל|cancel)\s*(\d+)/i);
+    const editMatch = text.match(/^(edit|ערוך)\s*(\d+)/i);
 
     const isSchedule = scheduleRegex.test(text);
     const isSummary = summaryRegex.test(text);
+    const isList = listRegex.test(text);
+    const isDelete = deleteMatch != null;
+    const isEdit = editMatch != null;
 
     if (isSchedule) {
         console.log('[Pusher Command] Detected SCHEDULE intent');
@@ -75,6 +101,17 @@ function handleIncomingWhatsAppCommand(message, sender) {
     } else if (isQuestionIntent(text)) {
         console.log('[Pusher Command] Detected QUESTION intent (fallback)');
         handleQuestionCommandFromText(text, sender);
+    } else if (isList) {
+        console.log('[Pusher Command] Detected LIST intent');
+        handleListScheduledMessages(sender);
+    } else if (isDelete) {
+        const n = parseInt(deleteMatch[2], 10);
+        console.log('[Pusher Command] Detected DELETE intent, task', n);
+        handleDeleteScheduledMessage(n, sender);
+    } else if (isEdit) {
+        const n = parseInt(editMatch[2], 10);
+        console.log('[Pusher Command] Detected EDIT intent, task', n);
+        handleEditScheduledMessage(n, sender);
     } else {
         console.log('[Pusher Command] No matching intent keyword found, ignoring.');
     }
@@ -515,7 +552,7 @@ function parseScheduleCommandFromText(text) {
     // 3) Optional date (YYYY-MM-DD)
     const dateMatch = fullText.match(/(\d{4}-\d{2}-\d{2})/);
 
-    // Determine date: explicit or inferred (today/tomorrow)
+    // Determine date: explicit or inferred (today/tomorrow), always in local timezone
     let date;
     const now = new Date();
     if (dateMatch) {
@@ -525,10 +562,9 @@ function parseScheduleCommandFromText(text) {
         const scheduled = new Date(now);
         scheduled.setHours(h, m, 0, 0);
         if (scheduled <= now) {
-            // If time already passed today, use tomorrow
             scheduled.setDate(scheduled.getDate() + 1);
         }
-        date = scheduled.toISOString().split('T')[0];
+        date = `${scheduled.getFullYear()}-${String(scheduled.getMonth() + 1).padStart(2, '0')}-${String(scheduled.getDate()).padStart(2, '0')}`;
     }
 
     // 4) Extract chat/group name from the header (preferred) or full text
@@ -595,17 +631,24 @@ function handleScheduleCommandFromText(text, sender) {
             message,
             date,
             time,
-            sent: false
+            sent: false,
+            sender: sender || null
         }
     ];
     store.set('scheduledMessages', updated);
+    updatePowerSaveBlocker();
 
-    // Ensure automation loop is running so the message will be sent
-    if (!automationInterval) {
-        startAutomationLoop();
+    if (sender) {
+        const timeStr = `${date} ${time}`;
+        const isHebrew = /[\u0590-\u05FF]/.test(text);
+        const confirmationMessage = isHebrew
+            ? `תזמנתי לך הודעה ל${chatName} ל${timeStr}. תוכן: '${message}'. השב 'cancel' לביטול.`
+            : `I've scheduled your message to ${chatName} for ${timeStr}. Content: '${message}'. Reply 'cancel' to stop this.`;
+        callSendNotification(sender, confirmationMessage).catch(() => {});
     }
 
-    // Update UI dashboard if available
+    if (!automationInterval) startAutomationLoop();
+
     if (isUIWindowAvailable()) {
         try {
             uiWindow.webContents.send(
@@ -619,6 +662,126 @@ function handleScheduleCommandFromText(text, sender) {
             console.error('[Pusher Command] Error sending UI update for scheduled messages:', err);
         }
     }
+}
+
+function handleListScheduledMessages(sender) {
+    const pending = getPendingScheduledMessages();
+    const isHebrew = /[\u0590-\u05FF]/.test(pending.length ? (pending[0].chatName || '') : '');
+    if (pending.length === 0) {
+        const msg = isHebrew ? 'אין הודעות מתוזמנות.' : 'No scheduled messages.';
+        callSendNotification(sender, msg).catch(() => {});
+        return;
+    }
+    const sep = isHebrew ? ' ב' : ' at ';
+    const lines = pending.map((m, i) => {
+        const timeStr = `${m.date} ${m.time}`;
+        const preview = (m.message || '').length > 40 ? (m.message || '').substring(0, 37) + '...' : (m.message || '');
+        return `${i + 1}. ${m.chatName}${sep}${timeStr} — ${preview}`;
+    });
+    callSendNotification(sender, lines.join('\n')).catch(() => {});
+}
+
+function handleDeleteScheduledMessage(taskNumber, sender) {
+    const pending = getPendingScheduledMessages();
+    const index = taskNumber - 1;
+    if (index < 0 || index >= pending.length) {
+        const isHebrew = /[\u0590-\u05FF]/.test((pending[0] && pending[0].chatName) || '');
+        const msg = isHebrew ? `אין משימה ${taskNumber}. שלח 'list' לרשימה.` : `No task ${taskNumber}. Send 'list' for the list.`;
+        callSendNotification(sender, msg).catch(() => {});
+        return;
+    }
+    const messages = store.get('scheduledMessages') || [];
+    const pendingIndices = messages.map((m, i) => (!m.sent ? i : -1)).filter(i => i >= 0);
+    const storeIndex = pendingIndices[index];
+    messages.splice(storeIndex, 1);
+    store.set('scheduledMessages', messages);
+    updatePowerSaveBlocker();
+    if (isUIWindowAvailable() && uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(m => !m.sent));
+    const isHebrew = /[\u0590-\u05FF]/.test((pending[index] && pending[index].chatName) || '');
+    const confirm = isHebrew ? `מחקתי משימה ${taskNumber}.` : `Task ${taskNumber} deleted.`;
+    callSendNotification(sender, confirm).catch(() => {});
+}
+
+function handleEditScheduledMessage(taskNumber, sender) {
+    const pending = getPendingScheduledMessages();
+    const index = taskNumber - 1;
+    if (index < 0 || index >= pending.length) {
+        const isHebrew = /[\u0590-\u05FF]/.test((pending[0] && pending[0].chatName) || '');
+        const msg = isHebrew ? `אין משימה ${taskNumber}. שלח 'list' לרשימה.` : `No task ${taskNumber}. Send 'list' for the list.`;
+        callSendNotification(sender, msg).catch(() => {});
+        return;
+    }
+    const messages = store.get('scheduledMessages') || [];
+    const pendingIndices = messages.map((m, i) => (!m.sent ? i : -1)).filter(i => i >= 0);
+    const storeIndex = pendingIndices[index];
+    const task = messages[storeIndex];
+    const isHebrew = /[\u0590-\u05FF]/.test(task.chatName || '');
+    const current = isHebrew
+        ? `משימה ${taskNumber}: ${task.chatName} ב${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. השב עם הערכים החדשים (name, date, time, content). דוגמה: name דני, date 2025-01-30, time 10:30, content שלום.`
+        : `Task ${taskNumber}: ${task.chatName} at ${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. Reply with new values (name, date, time, content). Example: name Danny, date 2025-01-30, time 10:30, content Hello.`;
+    _pendingEditBySender[sender] = { storeIndex, taskNumber };
+    callSendNotification(sender, current).catch(() => {});
+}
+
+function parseEditPayload(text) {
+    const out = {};
+    const t = text.trim();
+    if (!t) return out;
+    const nameMatch = t.match(/(?:name|שם|לשם)\s*[:\s]?\s*([^\n,]+)/i);
+    if (nameMatch) out.chatName = nameMatch[1].trim();
+    const dateMatch = t.match(/(\d{4}-\d{2}-\d{2})/) || t.match(/(?:date|תאריך)\s*[:\s]?\s*([^\n,]+)/i);
+    if (dateMatch) {
+        const raw = dateMatch[1].trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+            out.date = raw;
+        } else {
+            const now = new Date();
+            const lower = raw.toLowerCase();
+            if (lower.includes('מחר') || lower.includes('tomorrow')) {
+                const d = new Date(now);
+                d.setDate(d.getDate() + 1);
+                out.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            } else if (lower.includes('היום') || lower.includes('today')) {
+                out.date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            }
+        }
+    }
+    const timeMatch = t.match(/(?:time|שעה|בשעה)\s*[:\s]?\s*(\d{1,2}(?::\d{2})?|\d{1,2})/i) || t.match(/(\d{1,2}:\d{2}|\d{1,2})(?=\s|$|,)/);
+    if (timeMatch) {
+        let time = timeMatch[1].trim();
+        if (!time.includes(':')) {
+            const hour = parseInt(time, 10);
+            if (!isNaN(hour) && hour >= 0 && hour <= 23) time = String(hour).padStart(2, '0') + ':00';
+            else time = null;
+        }
+        if (time) out.time = time;
+    }
+    const contentMatch = t.match(/(?:content|תוכן|message)\s*[:\s]?\s*([\s\S]+)/i);
+    if (contentMatch) out.message = contentMatch[1].trim();
+    return out;
+}
+
+function handleEditPayload(text, sender) {
+    const pending = _pendingEditBySender[sender];
+    if (!pending) return;
+    const messages = store.get('scheduledMessages') || [];
+    if (pending.storeIndex < 0 || pending.storeIndex >= messages.length) {
+        delete _pendingEditBySender[sender];
+        return;
+    }
+    const updates = parseEditPayload(text);
+    const task = messages[pending.storeIndex];
+    if (updates.chatName !== undefined) task.chatName = updates.chatName;
+    if (updates.date !== undefined) task.date = updates.date;
+    if (updates.time !== undefined) task.time = updates.time;
+    if (updates.message !== undefined) task.message = updates.message;
+    store.set('scheduledMessages', messages);
+    delete _pendingEditBySender[sender];
+    updatePowerSaveBlocker();
+    if (isUIWindowAvailable() && uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(m => !m.sent));
+    const isHebrew = /[\u0590-\u05FF]/.test(task.chatName || '');
+    const confirm = isHebrew ? `משימה ${pending.taskNumber} עודכנה.` : `Task ${pending.taskNumber} updated.`;
+    callSendNotification(sender, confirm).catch(() => {});
 }
 
 /**
@@ -677,6 +840,58 @@ function isUIWindowAvailable() {
     } catch (error) {
         return false;
     }
+}
+
+// --- 2.2. Power Save Blocker (anti-sleep when pending scheduled messages) ---
+function updatePowerSaveBlocker() {
+    const pending = (store.get('scheduledMessages') || []).filter(m => !m.sent);
+    const count = pending.length;
+    if (count > 0) {
+        if (powerSaveBlockerId == null) {
+            powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+            console.log('[PowerSave] Started prevent-app-suspension (pending scheduled messages:', count, ')');
+        }
+    } else {
+        if (powerSaveBlockerId != null) {
+            powerSaveBlocker.stop(powerSaveBlockerId);
+            powerSaveBlockerId = null;
+            console.log('[PowerSave] Stopped prevent-app-suspension');
+        }
+    }
+}
+
+// --- 2.3. Missed scheduled messages on startup (computer was off) ---
+function checkMissedScheduledMessagesOnStartup() {
+    const messages = store.get('scheduledMessages') || [];
+    const now = new Date();
+    const oneMinuteAgo = now.getTime() - 60000;
+    const toRemove = [];
+    const toNotify = [];
+    for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (m.sent) continue;
+        if (!m.date || !m.time) continue;
+        const [y, mo, d] = m.date.split('-').map(Number);
+        const [h, min] = m.time.split(':').map(Number);
+        const scheduledTime = new Date(y, mo - 1, d, h, min, 0, 0);
+        if (scheduledTime.getTime() < oneMinuteAgo) {
+            toRemove.push(i);
+            if (m.sender) toNotify.push({ sender: m.sender, chatName: m.chatName });
+        }
+    }
+    if (toRemove.length === 0) return;
+    const updated = messages.filter((_, i) => !toRemove.includes(i));
+    store.set('scheduledMessages', updated);
+    updatePowerSaveBlocker();
+    if (isUIWindowAvailable() && uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', updated.filter(m => !m.sent));
+    for (const { sender, chatName } of toNotify) {
+        const isHebrew = /[\u0590-\u05FF]/.test(chatName || '');
+        const msg = isHebrew
+            ? `⚠️ פספסתי הודעה מתוזמנת ל${chatName} כי המחשב היה כבוי.`
+            : `⚠️ I missed a scheduled message to ${chatName} because the computer was off.`;
+        callSendNotification(sender, msg).catch(() => {});
+    }
+    console.log('[Startup] Removed', toRemove.length, 'missed scheduled message(s)');
 }
 
 // --- 3. Vercel Backend Integration (FIXED MAPPING) ---
@@ -760,6 +975,24 @@ async function callVercelQuestionAPI(chatName, messages, question, sender) {
         return { answer: `[Error] ${error.message}`, error: true };
     }
 }
+
+// --- 3.2. Send notification via Vercel (confirmation, success, missed, list/edit/delete reply) ---
+const SEND_NOTIFICATION_URL = 'https://whatsapp-summary-backend.vercel.app/api/send-notification';
+async function callSendNotification(to, message) {
+    if (!to || !message) return;
+    try {
+        const response = await fetch(SEND_NOTIFICATION_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to, message })
+        });
+        const data = response.ok ? await response.json() : { error: await response.text() };
+        if (!response.ok) console.error('[Notification] Failed:', data.error);
+    } catch (error) {
+        console.error('[Notification] Error:', error.message);
+    }
+}
+
 // --- 4. Window Creation Functions ---
 function createWhatsAppWindow() {
     // Configure session to appear more like Chrome
@@ -1208,10 +1441,9 @@ function isTimeToSendMessage(scheduledMessage) {
     if (!scheduledMessage.date || !scheduledMessage.time || scheduledMessage.sent) return false;
     
     const now = new Date();
-    const scheduledDate = new Date(`${scheduledMessage.date}T${scheduledMessage.time}`);
-    
-    // Check if date and time match (within the same minute)
-    const dateMatch = now.toISOString().split('T')[0] === scheduledMessage.date;
+    // Use local date for comparison (avoid UTC/day-boundary bugs)
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dateMatch = localDate === scheduledMessage.date;
     const scheduledHour = parseInt(scheduledMessage.time.substring(0, 2), 10);
     const scheduledMinute = parseInt(scheduledMessage.time.substring(3, 5), 10);
     const timeMatch = (now.getHours() === scheduledHour && now.getMinutes() === scheduledMinute);
@@ -1495,6 +1727,7 @@ ipcMain.on('ui:save-scheduled-message', (event, message) => {
     const messages = store.get('scheduledMessages') || [];
     messages.push(message);
     store.set('scheduledMessages', messages);
+    updatePowerSaveBlocker();
     if (!automationInterval) startAutomationLoop();
     // Send updated list back to UI
     if (uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages);
@@ -1512,6 +1745,7 @@ ipcMain.on('ui:delete-scheduled-message', (event, index) => {
     if (index >= 0 && index < messages.length) {
         messages.splice(index, 1);
         store.set('scheduledMessages', messages);
+        updatePowerSaveBlocker();
         // Send updated list back to UI
         if (uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(msg => !msg.sent));
     }
@@ -1676,22 +1910,27 @@ ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) 
     if (success) {
         console.log(`[Automation] Scheduled message sent successfully to ${chatName}`);
         
-        // Mark message as sent and remove from store
-        // Find messages for this chat that haven't been sent yet
-        // Since we process one at a time, we can safely remove the first unsent message for this chat
         const messages = store.get('scheduledMessages') || [];
+        let removedMsg = null;
         let messageRemoved = false;
         const updatedMessages = messages.filter(msg => {
-            // Remove the first unsent message matching this chatName
             if (!messageRemoved && msg.chatName === chatName && msg.sent === false) {
                 messageRemoved = true;
-                return false; // Remove this message
+                removedMsg = msg;
+                return false;
             }
-            return true; // Keep all other messages
+            return true;
         });
+        if (removedMsg && removedMsg.sender) {
+            const isHebrew = /[\u0590-\u05FF]/.test(removedMsg.chatName || '');
+            const successText = isHebrew
+                ? `✅ ההודעה ל${removedMsg.chatName} נשלחה בהצלחה!`
+                : `✅ Your message to ${removedMsg.chatName} was sent successfully!`;
+            callSendNotification(removedMsg.sender, successText).catch(() => {});
+        }
         store.set('scheduledMessages', updatedMessages);
+        updatePowerSaveBlocker();
         
-        // Update UI
         if (isUIWindowAvailable()) {
             try {
                 uiWindow.webContents.send('main:automation-status', { message: `Scheduled message sent to ${chatName}` });
@@ -1927,8 +2166,11 @@ app.whenReady().then(() => {
         }, 500);
     }, 300);
     
-    if (store.get('globalSettings.isSetupComplete')) startAutomationLoop();
-    // Start real-time WhatsApp command listener (Pusher)
+    if (store.get('globalSettings.isSetupComplete')) {
+        startAutomationLoop();
+        checkMissedScheduledMessagesOnStartup();
+    }
+    updatePowerSaveBlocker();
     setupPusherListener();
 });
 
