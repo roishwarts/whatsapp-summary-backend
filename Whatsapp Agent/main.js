@@ -408,6 +408,8 @@ function extractChatNameFromText(text) {
     // Patterns that indicate where the group name starts (ordered by specificity)
     // These patterns capture the group name that comes AFTER the marker
     const groupNameMarkers = [
+        // "שלח סיכום של דני שובבני" -> extract "דני שובבני" (full name)
+        /(?:שלח\s+)?סיכום\s+של\s+(.+?)(?:\s*$|\?|,)/,
         // "סכם מה דיברו בקבוצה של X" -> extract "X"
         /(?:סכם|סיכום)\s+מה\s+דיברו\s+ב(?:קבוצ[הת]|קהילה)\s+של\s+(.+?)(?:\s|$|\?|,)/,
         // "סכם מה דיברו בX" -> extract "X"
@@ -418,8 +420,6 @@ function extractChatNameFromText(text) {
         /(?:סכם|סיכום)\s+את\s+השיחה\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|$|\?|,)/,
         // "מה היה היום בX" or "מה היה היום בקבוצה X" -> extract "X"
         /מה\s+היה\s+היום\s+ב(?:קבוצ[הת]|קהילה)?\s*(.+?)(?:\s|$|\?|,)/,
-        // "סיכום של X" -> extract "X"
-        /סיכום\s+של\s+(.+?)(?:\s|$|\?|,)/,
         // "סכם את קבוצת X" -> extract "X"
         /(?:סכם|סיכום)\s+את\s+קבוצ[הת]\s+(.+?)(?:\s|$|\?|,)/,
         // "סיכום קבוצת X" -> extract "X"
@@ -440,10 +440,8 @@ function extractChatNameFromText(text) {
             // Remove trailing punctuation
             const cleaned = extracted.replace(/[?.,!;:]+$/, '').trim();
             if (cleaned && cleaned.length > 0) {
-                // Take only the first word/phrase (group names are usually single words or short phrases)
-                const parts = cleaned.split(/\s+/);
-                const groupName = parts[0];
-                return normalizeGroupName(groupName);
+                // Return full name (e.g. "דני שובבני") so multi-word chat names are preserved
+                return normalizeGroupName(cleaned);
             }
         }
     }
@@ -508,6 +506,12 @@ function handleSummaryCommandFromText(text, sender) {
 function extractChatNameFromScheduleText(text) {
     if (!text) return null;
     const normalized = text.trim();
+
+    // "שלח הודעה לקבוצה x בשעה y ותכתוב z" -> chat name is x (strip "לקבוצה ")
+    const toGroupMatch = normalized.match(/שלח\s+הודעה\s+לקבוצה\s+(.+?)(?:\s+בשעה|\s+ב\s*\d|\s+מחר|\s+היום|\s+מחרתיים|\s*,|$)/);
+    if (toGroupMatch && toGroupMatch[1]) {
+        return normalizeGroupName(toGroupMatch[1].trim());
+    }
 
     // Hebrew schedule-style: "שלח הודעה ל<name> ..." / "תזמן ... ל<name> ..."
     const patterns = [

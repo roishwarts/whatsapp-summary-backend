@@ -182,7 +182,9 @@ function extractChatNameFromRow(row) {
     }
     
     if (nameElement) {
-        const name = (nameElement.getAttribute('title') || nameElement.textContent || '').trim();
+        // Prefer textContent so we get the full display name including emoji (e.g. "דור ❤️");
+        // title attribute often has plain text only
+        const name = (nameElement.textContent || nameElement.getAttribute('title') || '').trim();
         if (name.length > 1) {
             return name;
         }
