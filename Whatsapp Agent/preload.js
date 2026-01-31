@@ -167,27 +167,24 @@ contextBridge.exposeInMainWorld('whatsappApi', {
 
 // --- 2. Core Interaction Functions (Run in the Renderer/Preload) ---
 
-// Helper function to extract chat name from a row element
+// Helper function to extract chat name from a row element (including emoji, e.g. "דור ❤️")
 function extractChatNameFromRow(row) {
-    // Try multiple selectors to find the chat name element
+    // Prefer the first gridcell's textContent so we get the full display name including emoji (e.g. "דור ❤️")
+    const gridcell = row.querySelector('div[role="gridcell"]');
+    if (gridcell) {
+        const cellText = (gridcell.textContent || '').trim();
+        // Take first line only (chat name); second line is often message preview or time
+        const firstLine = cellText.split(/\r?\n/)[0].trim();
+        if (firstLine.length > 1) return firstLine;
+    }
+    // Fallback: element with title (may lack emoji)
     let nameElement = row.querySelector('div[role="gridcell"] span[title]');
-    if (!nameElement) {
-        nameElement = row.querySelector('div[role="gridcell"] div[title]');
-    }
-    if (!nameElement) {
-        nameElement = row.querySelector('span[title]');
-    }
-    if (!nameElement) {
-        nameElement = row.querySelector('div[title]');
-    }
-    
+    if (!nameElement) nameElement = row.querySelector('div[role="gridcell"] div[title]');
+    if (!nameElement) nameElement = row.querySelector('span[title]');
+    if (!nameElement) nameElement = row.querySelector('div[title]');
     if (nameElement) {
-        // Prefer textContent so we get the full display name including emoji (e.g. "דור ❤️");
-        // title attribute often has plain text only
         const name = (nameElement.textContent || nameElement.getAttribute('title') || '').trim();
-        if (name.length > 1) {
-            return name;
-        }
+        if (name.length > 1) return name;
     }
     return null;
 }

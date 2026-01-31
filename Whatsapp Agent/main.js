@@ -158,7 +158,7 @@ async function handleIncomingWhatsAppCommand(message, sender) {
         await handleScheduleCommandFromText(text, sender);
     } else if (isSummary) {
         console.log('[Pusher Command] Detected SUMMARY intent');
-        handleSummaryCommandFromText(text, sender);
+        await handleSummaryCommandFromText(text, sender);
     } else if (isQuestionIntent(text)) {
         console.log('[Pusher Command] Detected QUESTION intent (fallback)');
         handleQuestionCommandFromText(text, sender);
@@ -184,11 +184,12 @@ async function handleIncomingWhatsAppCommand(message, sender) {
     }
 }
 
-// Normalize group/chat name (Hebrew): strip generic "קבוצה"/"קבוצת" prefix when present
+// Normalize group/chat name (Hebrew): strip generic "קבוצה"/"קבוצת"/"הקבוצה" prefix when present
 function normalizeGroupName(name) {
     if (!name) return null;
     let cleaned = name.trim();
-    // E.g. "קבוצת הדירות" -> "הדירות"
+    // E.g. "קבוצת הדירות" -> "הדירות", "הקבוצה חיים קשים" -> "חיים קשים"
+    cleaned = cleaned.replace(/^הקבוצה\s+/, '').trim();
     cleaned = cleaned.replace(/^קבוצ[הת]\s+/, '').trim();
 
     // If phrase contains "עם X" (e.g. "לי את השיחה עם דור"), prefer the part after the last "עם"
@@ -472,25 +473,28 @@ function extractChatNameFromText(text) {
  * Handle a "summary" style command: trigger an immediate Daily Brief
  * for the requested chat/group.
  */
-function handleSummaryCommandFromText(text, sender) {
-    const chatName = extractChatNameFromText(text);
+async function handleSummaryCommandFromText(text, sender) {
+    let chatName = extractChatNameFromText(text);
     if (!chatName) {
         console.warn('[Pusher Command] Summary intent detected but no chat/group name found in text:', text);
         return;
     }
 
+    // Resolve to actual chat name (e.g. with emoji) so summary title shows correct name
+    const list = await getChatListForResolve();
+    const resolvedName = resolveChatName(chatName, list);
+    if (resolvedName) chatName = resolvedName;
+
     console.log(`[Pusher Command] Triggering Daily Brief for chat: "${chatName}" (sender: ${sender || 'unknown'})`);
 
-    // Use existing automation pipeline: processChatQueue + processNextChatInQueue + whatsapp:response-messages
     const onDemandChat = {
         name: chatName,
         time: '00:00',
         frequency: 'on-demand',
         lastRunTime: null,
-        _onDemandSender: sender // Store sender for on-demand summaries
+        _onDemandSender: sender
     };
 
-    // Fire and forget; errors are already logged inside processChatQueue
     processChatQueue([onDemandChat]).catch(err => {
         console.error('[Pusher Command] Error while running Daily Brief for chat', chatName, err);
     });
