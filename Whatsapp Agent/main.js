@@ -608,31 +608,52 @@ function parseScheduleCommandFromText(text) {
     // 1) Split into header (recipient/time) and content (message body)
     const { header, content } = splitMessageContentFromText(fullText);
 
-    // 2) Extract time (supports HH:MM or H, e.g. "9" -> "09:00")
-    const timeMatch = fullText.match(/(\d{1,2}:\d{2}|\d{1,2})/);
-    if (!timeMatch) {
-        console.warn('[Pusher Command] Schedule intent detected but no time (HH:MM or H) found in text:', text);
+    // 2) Extract time: prefer HH:MM (so "31.1" / "1.2" are not mistaken for hour)
+    let time = null;
+    const timeColonMatch = fullText.match(/(\d{1,2}):(\d{2})/);
+    if (timeColonMatch) {
+        const h = parseInt(timeColonMatch[1], 10);
+        const m = parseInt(timeColonMatch[2], 10);
+        if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            time = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+        }
+    }
+    if (!time) {
+        // Bare hour only if not part of date (e.g. not "31" from "31.1" or "1" from "1.2") — \b(\d{1,2})\b(?!\.)
+        const bareHourMatch = fullText.match(/\b(\d{1,2})\b(?!\.)/);
+        if (bareHourMatch) {
+            const hour = parseInt(bareHourMatch[1], 10);
+            if (hour >= 0 && hour <= 23) {
+                time = String(hour).padStart(2, '0') + ':00';
+            }
+        }
+    }
+    if (!time) {
+        console.warn('[Pusher Command] Schedule intent detected but no valid time (HH:MM or hour 0-23) found in text:', text);
         return null;
     }
-    let time = timeMatch[1];
-    if (!time.includes(':')) {
-        const hour = parseInt(time, 10);
-        if (isNaN(hour) || hour < 0 || hour > 23) {
-            console.warn('[Pusher Command] Invalid hour in schedule command:', time, 'text:', text);
-            return null;
-        }
-        time = String(hour).padStart(2, '0') + ':00';
-    }
 
-    // 3) Optional date (YYYY-MM-DD)
+    // 3) Date: YYYY-MM-DD or Hebrew short form d.m / d.m. (day.month)
     const dateMatch = fullText.match(/(\d{4}-\d{2}-\d{2})/);
+    const dmMatch = !dateMatch ? fullText.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
 
-    // Determine date: explicit or inferred (today/tomorrow), always in local timezone
     let date;
     const now = new Date();
     if (dateMatch) {
         date = dateMatch[1];
-    } else {
+    } else if (dmMatch) {
+        const day = parseInt(dmMatch[1], 10);
+        const month = parseInt(dmMatch[2], 10);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            const year = now.getFullYear();
+            let dateObj = new Date(year, month - 1, day);
+            if (dateObj < new Date(year, now.getMonth(), now.getDate())) {
+                dateObj = new Date(year + 1, month - 1, day);
+            }
+            date = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+        }
+    }
+    if (!date) {
         const [h, m] = time.split(':').map(Number);
         const scheduled = new Date(now);
         scheduled.setHours(h, m, 0, 0);
@@ -667,8 +688,10 @@ function parseScheduleCommandFromText(text) {
         messageText = messageText.replace(chatName, ' ');
         if (dateMatch) {
             messageText = messageText.replace(dateMatch[1], ' ');
+        } else if (dmMatch) {
+            messageText = messageText.replace(dmMatch[0], ' ');
         }
-        messageText = messageText.replace(timeMatch[1], ' ');
+        messageText = messageText.replace(time, ' ');
         // Collapse whitespace
         messageText = messageText.replace(/\s+/g, ' ').trim();
     }
