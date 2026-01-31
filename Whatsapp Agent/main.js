@@ -718,9 +718,11 @@ async function handleScheduleCommandFromText(text, sender) {
     if (!parsed) return;
 
     let { chatName, date, time, message } = parsed;
+    const partialName = (parsed.chatName || '').trim();
     const list = await getChatListForResolve();
     const resolvedName = resolveChatName(chatName, list);
     if (resolvedName) chatName = resolvedName;
+    const multipleMatches = list && partialName && (list.filter((n) => (n || '').trim().includes(partialName)).length > 1);
 
     // Reject if scheduled time is in the past
     const [y, mo, d] = date.split('-').map(Number);
@@ -759,9 +761,14 @@ async function handleScheduleCommandFromText(text, sender) {
 
     if (sender) {
         const isHebrew = /[\u0590-\u05FF]/.test(text);
-        const confirmationMessage = isHebrew
+        let confirmationMessage = isHebrew
             ? `תזמנתי לך הודעה ל${chatName} בתאריך ${date} בשעה ${time}.\nתוכן ההודעה: '${message}'. השב 'בטל' לביטול.`
             : `I've scheduled your message to ${chatName} on date ${date} at time ${time}.\nMessage content: '${message}'. Reply 'cancel' to cancel.`;
+        if (multipleMatches) {
+            confirmationMessage += isHebrew
+                ? `\n(יש יותר מאיש קשר אחד עם שם דומה; תזמנתי ל${chatName}. השב 'בטל' אם התכוונת למישהו אחר.)`
+                : `\n(More than one contact matches; scheduled to ${chatName}. Reply 'cancel' if you meant someone else.)`;
+        }
         callSendNotification(sender, confirmationMessage).catch(() => {});
     }
 

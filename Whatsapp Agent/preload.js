@@ -167,24 +167,24 @@ contextBridge.exposeInMainWorld('whatsappApi', {
 
 // --- 2. Core Interaction Functions (Run in the Renderer/Preload) ---
 
-// Helper function to extract chat name from a row element (including emoji, e.g. "דור ❤️")
+// Helper function to extract chat name from a row element.
+// Prefer the full name from the title attribute (so confirmations show full contact name and disambiguate same first names).
 function extractChatNameFromRow(row) {
-    // Prefer the first gridcell's textContent so we get the full display name including emoji (e.g. "דור ❤️")
-    const gridcell = row.querySelector('div[role="gridcell"]');
-    if (gridcell) {
-        const cellText = (gridcell.textContent || '').trim();
-        // Take first line only (chat name); second line is often message preview or time
-        const firstLine = cellText.split(/\r?\n/)[0].trim();
-        if (firstLine.length > 1) return firstLine;
-    }
-    // Fallback: element with title (may lack emoji)
+    // Prefer title attribute (full contact name in WhatsApp Web) so list has full names for confirmation
     let nameElement = row.querySelector('div[role="gridcell"] span[title]');
     if (!nameElement) nameElement = row.querySelector('div[role="gridcell"] div[title]');
     if (!nameElement) nameElement = row.querySelector('span[title]');
     if (!nameElement) nameElement = row.querySelector('div[title]');
     if (nameElement) {
-        const name = (nameElement.textContent || nameElement.getAttribute('title') || '').trim();
-        if (name.length > 1) return name;
+        const fullName = (nameElement.getAttribute('title') || nameElement.textContent || '').trim();
+        if (fullName.length > 1) return fullName;
+    }
+    // Fallback: first line of gridcell textContent (display name, may include emoji e.g. "דור ❤️")
+    const gridcell = row.querySelector('div[role="gridcell"]');
+    if (gridcell) {
+        const cellText = (gridcell.textContent || '').trim();
+        const firstLine = cellText.split(/\r?\n/)[0].trim();
+        if (firstLine.length > 1) return firstLine;
     }
     return null;
 }
