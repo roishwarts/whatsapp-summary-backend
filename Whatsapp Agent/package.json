@@ -1,11 +1,11 @@
 {
-  "name": "WhatsApp_Summarizer",
+  "name": "WhatsApp AppAssistant",
   "version": "1.0.0",
   "description": "",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder",
+    "dist": "electron-builder -mw",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -17,10 +17,28 @@
   },
   "build": {
     "appId": "com.yourname.yourapp",
-    "productName": "My Awesome App",
+    "productName": "WhatsApp Assistant",
+    "mac": {
+      "target": "dmg",
+      "arch": ["x64", "arm64"],
+      "category": "public.app-category.utilities"
+    },
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "directories": {
       "output": "dist"
