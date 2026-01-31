@@ -68,7 +68,8 @@ function getChatListForResolve() {
             return;
         }
         _chatListResolve = resolve;
-        whatsappWindow.webContents.send('app:request-chat-list-for-resolve');
+        // Use same request as UI (app:request-chat-list) so we get the exact same list with full names
+        whatsappWindow.webContents.send('app:request-chat-list');
         setTimeout(() => {
             if (_chatListResolve) {
                 _chatListResolve(null);
@@ -2097,6 +2098,12 @@ ipcMain.on('whatsapp:ready', (event) => {
 });
 
 ipcMain.on('whatsapp:response-chat-list', (event, list) => {
+    // If this response was for name resolution (schedule confirmation), resolve and don't send to UI
+    if (_chatListResolve) {
+        _chatListResolve(list || []);
+        _chatListResolve = null;
+        return;
+    }
     // Check if this response is for scheduled messages
     const isForScheduledMessage = event.sender._isForScheduledMessage;
     if (isForScheduledMessage) {
@@ -2107,13 +2114,6 @@ ipcMain.on('whatsapp:response-chat-list', (event, list) => {
     } else {
         // Regular chat list request
         if (uiWindow) uiWindow.webContents.send('main:render-chat-list', list);
-    }
-});
-
-ipcMain.on('whatsapp:chat-list-for-resolve', (event, list) => {
-    if (_chatListResolve) {
-        _chatListResolve(list || []);
-        _chatListResolve = null;
     }
 });
 
