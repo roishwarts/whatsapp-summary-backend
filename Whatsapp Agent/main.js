@@ -895,8 +895,8 @@ function checkMissedScheduledMessagesOnStartup() {
 }
 
 // --- 3. Vercel Backend Integration (FIXED MAPPING) ---
-// Base URL for Vercel API (match your deployment: whatsapp-summary-service.vercel.app or your project name)
-const VERCEL_API_BASE = process.env.VERCEL_API_BASE || 'https://whatsapp-summary-service.vercel.app';
+// Base URL for Vercel API - must match the deployment where summarize-and-deliver and answer-question run (e.g. whatsapp-summary-backend.vercel.app). Override with env VERCEL_API_BASE if different.
+const VERCEL_API_BASE = process.env.VERCEL_API_BASE || 'https://whatsapp-summary-backend.vercel.app';
 
 async function callVercelBackend(chatName, messages, recipientInfoOverride = null) {
     const VERCEL_URL = `${VERCEL_API_BASE}/api/summarize-and-deliver`;
