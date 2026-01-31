@@ -61,6 +61,9 @@ function resolveChatName(partialName, list) {
     return partialName;
 }
 
+// Timeout for chat list resolve: getChatList() scrolls through all chats and can take 30–60s for large lists
+const CHAT_LIST_RESOLVE_TIMEOUT_MS = 60000;
+
 function getChatListForResolve() {
     return new Promise((resolve) => {
         if (!isWhatsAppWindowAvailable() || !whatsappWindow.webContents) {
@@ -72,10 +75,11 @@ function getChatListForResolve() {
         whatsappWindow.webContents.send('app:request-chat-list-for-resolve');
         setTimeout(() => {
             if (_chatListResolve) {
+                console.log('[Pusher Command] Chat list for resolve: timeout after', CHAT_LIST_RESOLVE_TIMEOUT_MS / 1000, 's');
                 _chatListResolve(null);
                 _chatListResolve = null;
             }
-        }, 15000);
+        }, CHAT_LIST_RESOLVE_TIMEOUT_MS);
     });
 }
 
@@ -120,6 +124,15 @@ async function handleIncomingWhatsAppCommand(message, sender) {
     }
 
     console.log('[Pusher Command] Raw command:', { sender, text });
+
+    // "שנה ל X" / "change to X" — change recipient (optional space after ל/to so "שנה לx" and "שנה ל x" both work)
+    const changeToMatch = text.match(/^שנה\s+ל\s*(.+)$/) || text.match(/^change\s+to\s*(.+)$/i);
+    if (changeToMatch) {
+        console.log('[Pusher Command] Detected CHANGE TO (שנה ל) intent');
+        if (_pendingEditBySender[sender]) delete _pendingEditBySender[sender];
+        await handleChangeRecipient(text, sender);
+        return;
+    }
 
     // If sender has pending edit, treat as edit payload unless message is another command
     const pendingEdit = _pendingEditBySender[sender];
@@ -722,8 +735,15 @@ async function handleScheduleCommandFromText(text, sender) {
     const partialName = (parsed.chatName || '').trim();
     // Resolve to full name from chat list (background; same getChatList() as UI, never sent to UI)
     const list = await getChatListForResolve();
+    console.log('[Pusher Command] Chat list for resolve: list is', list ? `array of ${list.length} items` : 'null');
+    if (list && list.length > 0) {
+        const sample = list.slice(0, 5).map((n, i) => `"${(n || '').trim()}"`).join(', ');
+        console.log('[Pusher Command] Chat list sample (first 5):', sample);
+    }
     const resolvedName = resolveChatName(chatName, list);
+    console.log('[Pusher Command] Resolve: partialName="' + partialName + '" -> resolvedName="' + (resolvedName || '') + '"');
     const fullChatName = (resolvedName && resolvedName.trim()) ? resolvedName.trim() : chatName;
+    console.log('[Pusher Command] fullChatName used for confirmation and store:', JSON.stringify(fullChatName));
     if (resolvedName) chatName = resolvedName;
     const multipleMatches = !!(list && partialName && list.filter((n) => (n || '').trim().includes(partialName)).length > 1);
 
@@ -756,7 +776,8 @@ async function handleScheduleCommandFromText(text, sender) {
             date,
             time,
             sent: false,
-            sender: sender || null
+            sender: sender || null,
+            hadMultipleMatches: multipleMatches || false
         }
     ];
     store.set('scheduledMessages', updated);
@@ -770,9 +791,10 @@ async function handleScheduleCommandFromText(text, sender) {
             : `I've scheduled your message to ${fullChatName} on date ${date} at time ${time}.\nMessage content: '${message}'. Reply 'cancel' to cancel.`;
         if (multipleMatches) {
             confirmationMessage += isHebrew
-                ? `\n(יש יותר מאיש קשר אחד עם שם דומה; תזמנתי ל${fullChatName}. השב 'בטל' אם התכוונת למישהו אחר.)`
-                : `\n(More than one contact matches; scheduled to ${fullChatName}. Reply 'cancel' if you meant someone else.)`;
+                ? `\n(יש יותר מאיש קשר אחד עם שם דומה; תזמנתי ל${fullChatName}. השב 'שנה ל [השם של איש הקשר הנכון]' או 'בטל' לביטול.)`
+                : `\n(More than one contact matches; scheduled to ${fullChatName}. Reply 'change to [correct contact name]' or 'cancel' to cancel.)`;
         }
+        console.log('[Pusher Command] Sending confirmation to sender; fullChatName in message:', JSON.stringify(fullChatName));
         callSendNotification(sender, confirmationMessage).catch(() => {});
     }
 
@@ -791,6 +813,52 @@ async function handleScheduleCommandFromText(text, sender) {
             console.error('[Pusher Command] Error sending UI update for scheduled messages:', err);
         }
     }
+}
+
+/** Handle "שנה ל X" / "change to X": update recipient (X = chatName). Optional space after ל/to. */
+async function handleChangeRecipient(text, sender) {
+    const m = text.match(/^שנה\s+ל\s*(.+)$/) || text.match(/^change\s+to\s*(.+)$/i);
+    if (!m || !sender) return;
+    const newContactPartial = m[1].trim();
+    if (!newContactPartial) return;
+
+    const list = await getChatListForResolve();
+    const fullName = resolveChatName(newContactPartial, list) || newContactPartial;
+
+    const messages = store.get('scheduledMessages') || [];
+    let storeIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (!messages[i].sent && messages[i].sender === sender && messages[i].hadMultipleMatches) {
+            storeIndex = i;
+            break;
+        }
+    }
+    if (storeIndex < 0) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (!messages[i].sent && messages[i].sender === sender) {
+                storeIndex = i;
+                break;
+            }
+        }
+    }
+    if (storeIndex < 0) {
+        const isHebrew = /[\u0590-\u05FF]/.test(text);
+        const msg = isHebrew ? 'אין הודעה מתוזמנת אחרונה שלך — לא ניתן לשנות נמען.' : 'No recent scheduled message from you to change recipient.';
+        callSendNotification(sender, msg).catch(() => {});
+        return;
+    }
+
+    const task = messages[storeIndex];
+    task.chatName = fullName;
+    task.hadMultipleMatches = false;
+    store.set('scheduledMessages', messages);
+    if (isUIWindowAvailable() && uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(m => !m.sent));
+
+    const isHebrew = /[\u0590-\u05FF]/.test(text);
+    const confirmationMessage = isHebrew
+        ? `עדכנתי את הנמען ל${fullName}. תזמנתי לך הודעה ל${fullName} בתאריך ${task.date} בשעה ${task.time}.\nתוכן ההודעה: '${task.message || ''}'. השב 'בטל' לביטול.`
+        : `Updated recipient to ${fullName}. I've scheduled your message to ${fullName} on date ${task.date} at time ${task.time}.\nMessage content: '${task.message || ''}'. Reply 'cancel' to cancel.`;
+    callSendNotification(sender, confirmationMessage).catch(() => {});
 }
 
 function handleListScheduledMessages(sender) {
@@ -839,7 +907,7 @@ function handleDeleteScheduledMessage(taskNumber, sender) {
     const index = taskNumber - 1;
     if (index < 0 || index >= pending.length) {
         const isHebrew = /[\u0590-\u05FF]/.test((pending[0] && pending[0].chatName) || '');
-        const msg = isHebrew ? `אין הודעה ${taskNumber}. שלח 'list' לרשימה.` : `No message ${taskNumber}. Send 'list' for the list.`;
+        const msg = isHebrew ? `אין הודעה ${taskNumber}. שלח 'רשימת הודעות' לקבלת הרשימה המלאה.` : `No message ${taskNumber}. Send 'list' for the full list.`;
         callSendNotification(sender, msg).catch(() => {});
         return;
     }
@@ -878,7 +946,7 @@ function handleEditSingleField(taskNumber, field, value, sender) {
     const index = taskNumber - 1;
     if (index < 0 || index >= pending.length) {
         const isHebrew = /[\u0590-\u05FF]/.test(value || '');
-        const msg = isHebrew ? `אין הודעה ${taskNumber}. שלח 'list' לרשימה.` : `No message ${taskNumber}. Send 'list' for the list.`;
+        const msg = isHebrew ? `אין הודעה ${taskNumber}. שלח 'רשימת הודעות' לקבלת הרשימה המלאה.` : `No message ${taskNumber}. Send 'list' for the full list.`;
         callSendNotification(sender, msg).catch(() => {});
         return;
     }
@@ -927,7 +995,7 @@ function handleEditScheduledMessage(taskNumber, sender) {
     const index = taskNumber - 1;
     if (index < 0 || index >= pending.length) {
         const isHebrew = /[\u0590-\u05FF]/.test((pending[0] && pending[0].chatName) || '');
-        const msg = isHebrew ? `אין הודעה ${taskNumber}. שלח 'list' לרשימה.` : `No message ${taskNumber}. Send 'list' for the list.`;
+        const msg = isHebrew ? `אין הודעה ${taskNumber}. שלח 'רשימת הודעות' לקבלת הרשימה המלאה.` : `No message ${taskNumber}. Send 'list' for the full list.`;
         callSendNotification(sender, msg).catch(() => {});
         return;
     }
@@ -937,8 +1005,8 @@ function handleEditScheduledMessage(taskNumber, sender) {
     const task = messages[storeIndex];
     const isHebrew = /[\u0590-\u05FF]/.test(task.chatName || '');
     const current = isHebrew
-        ? `${taskNumber}. ${task.chatName} ב${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. השב עם הערכים החדשים (name, date, time, content). דוגמה: name דני, date 2025-01-30, time 10:30, content שלום.`
-        : `${taskNumber}. ${task.chatName} at ${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. Reply with new values (name, date, time, content). Example: name Danny, date 2025-01-30, time 10:30, content Hello.`;
+        ? `${taskNumber}. ${task.chatName} ב${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. השב עם הערכים החדשים (שם, תאריך, שעה, תוכן ההודעה). אפשר לשנות פרמטר אחד או יותר.`
+        : `${taskNumber}. ${task.chatName} at ${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. Reply with new values (name, date, time, message content). You can change one or more parameters.`;
     _pendingEditBySender[sender] = { storeIndex, taskNumber };
     callSendNotification(sender, current).catch(() => {});
 }
@@ -976,7 +1044,7 @@ function parseEditPayload(text) {
         }
         if (time) out.time = time;
     }
-    const contentMatch = t.match(/(?:content|תוכן|message)\s*[:\s]?\s*([\s\S]+)/i);
+    const contentMatch = t.match(/(?:content|תוכן ההודעה|תוכן|message)\s*[:\s]?\s*([\s\S]+)/i);
     if (contentMatch) out.message = contentMatch[1].trim();
     return out;
 }
@@ -2115,8 +2183,14 @@ ipcMain.on('whatsapp:response-chat-list', (event, list) => {
 });
 
 ipcMain.on('whatsapp:chat-list-for-resolve', (event, list) => {
+    const arr = list || [];
+    console.log('[Pusher Command] Received chat list for resolve:', arr.length, 'items');
+    if (arr.length > 0) {
+        const sample = arr.slice(0, 5).map((n, i) => `"${(n || '').trim()}"`).join(', ');
+        console.log('[Pusher Command] Received list sample (first 5):', sample);
+    }
     if (_chatListResolve) {
-        _chatListResolve(list || []);
+        _chatListResolve(arr);
         _chatListResolve = null;
     }
 });
