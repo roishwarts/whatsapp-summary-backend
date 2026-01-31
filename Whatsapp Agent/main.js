@@ -68,8 +68,8 @@ function getChatListForResolve() {
             return;
         }
         _chatListResolve = resolve;
-        // Use same request as UI (app:request-chat-list) so we get the exact same list with full names
-        whatsappWindow.webContents.send('app:request-chat-list');
+        // Use separate channel so response is never sent to UI (runs in background)
+        whatsappWindow.webContents.send('app:request-chat-list-for-resolve');
         setTimeout(() => {
             if (_chatListResolve) {
                 _chatListResolve(null);
@@ -720,9 +720,10 @@ async function handleScheduleCommandFromText(text, sender) {
 
     let { chatName, date, time, message } = parsed;
     const partialName = (parsed.chatName || '').trim();
-    // Resolve to full name from chat list (same list as schedule message UI)
+    // Resolve to full name from chat list (background; same getChatList() as UI, never sent to UI)
     const list = await getChatListForResolve();
     const resolvedName = resolveChatName(chatName, list);
+    const fullChatName = (resolvedName && resolvedName.trim()) ? resolvedName.trim() : chatName;
     if (resolvedName) chatName = resolvedName;
     const multipleMatches = !!(list && partialName && list.filter((n) => (n || '').trim().includes(partialName)).length > 1);
 
@@ -743,14 +744,14 @@ async function handleScheduleCommandFromText(text, sender) {
         return;
     }
 
-    console.log(`[Pusher Command] Scheduling message for chat "${chatName}" at ${date} ${time} (sender: ${sender || 'unknown'})`);
+    console.log(`[Pusher Command] Scheduling message for chat "${fullChatName}" at ${date} ${time} (sender: ${sender || 'unknown'})`);
     console.log('[Pusher Command] Scheduled message text:', message);
 
     const existing = store.get('scheduledMessages') || [];
     const updated = [
         ...existing,
         {
-            chatName,
+            chatName: fullChatName,
             message,
             date,
             time,
@@ -763,13 +764,14 @@ async function handleScheduleCommandFromText(text, sender) {
 
     if (sender) {
         const isHebrew = /[\u0590-\u05FF]/.test(text);
+        // Use full chat name from list in confirmation (same names as schedule message UI)
         let confirmationMessage = isHebrew
-            ? `תזמנתי לך הודעה ל${chatName} בתאריך ${date} בשעה ${time}.\nתוכן ההודעה: '${message}'. השב 'בטל' לביטול.`
-            : `I've scheduled your message to ${chatName} on date ${date} at time ${time}.\nMessage content: '${message}'. Reply 'cancel' to cancel.`;
+            ? `תזמנתי לך הודעה ל${fullChatName} בתאריך ${date} בשעה ${time}.\nתוכן ההודעה: '${message}'. השב 'בטל' לביטול.`
+            : `I've scheduled your message to ${fullChatName} on date ${date} at time ${time}.\nMessage content: '${message}'. Reply 'cancel' to cancel.`;
         if (multipleMatches) {
             confirmationMessage += isHebrew
-                ? `\n(יש יותר מאיש קשר אחד עם שם דומה; תזמנתי ל${chatName}. השב 'בטל' אם התכוונת למישהו אחר.)`
-                : `\n(More than one contact matches; scheduled to ${chatName}. Reply 'cancel' if you meant someone else.)`;
+                ? `\n(יש יותר מאיש קשר אחד עם שם דומה; תזמנתי ל${fullChatName}. השב 'בטל' אם התכוונת למישהו אחר.)`
+                : `\n(More than one contact matches; scheduled to ${fullChatName}. Reply 'cancel' if you meant someone else.)`;
         }
         callSendNotification(sender, confirmationMessage).catch(() => {});
     }
@@ -783,7 +785,7 @@ async function handleScheduleCommandFromText(text, sender) {
                 updated.filter(msg => !msg.sent)
             );
             uiWindow.webContents.send('main:automation-status', {
-                message: `Scheduled message for "${chatName}" at ${date} ${time} (via WhatsApp command)`
+                message: `Scheduled message for "${fullChatName}" at ${date} ${time} (via WhatsApp command)`
             });
         } catch (err) {
             console.error('[Pusher Command] Error sending UI update for scheduled messages:', err);
@@ -2098,12 +2100,7 @@ ipcMain.on('whatsapp:ready', (event) => {
 });
 
 ipcMain.on('whatsapp:response-chat-list', (event, list) => {
-    // If this response was for name resolution (schedule confirmation), resolve and don't send to UI
-    if (_chatListResolve) {
-        _chatListResolve(list || []);
-        _chatListResolve = null;
-        return;
-    }
+    // Only UI requests use this channel; resolve uses whatsapp:chat-list-for-resolve
     // Check if this response is for scheduled messages
     const isForScheduledMessage = event.sender._isForScheduledMessage;
     if (isForScheduledMessage) {
@@ -2114,6 +2111,13 @@ ipcMain.on('whatsapp:response-chat-list', (event, list) => {
     } else {
         // Regular chat list request
         if (uiWindow) uiWindow.webContents.send('main:render-chat-list', list);
+    }
+});
+
+ipcMain.on('whatsapp:chat-list-for-resolve', (event, list) => {
+    if (_chatListResolve) {
+        _chatListResolve(list || []);
+        _chatListResolve = null;
     }
 });
 

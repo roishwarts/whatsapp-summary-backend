@@ -2206,10 +2206,16 @@ async function getMessagesForQuestion() {
 
 // --- 3. IPC Command Listeners (Handle Commands from Main) ---
 
-// Listener 1: Main asks for the chat list
+// Listener 1: Main asks for the chat list (UI: schedule message / summary)
 ipcRenderer.on('app:request-chat-list', async () => {
     const list = await getChatList();
     ipcRenderer.send('whatsapp:response-chat-list', list);
+});
+
+// Listener 1b: Main asks for chat list for name resolution only (background; same getChatList(), never sent to UI)
+ipcRenderer.on('app:request-chat-list-for-resolve', async () => {
+    const list = await getChatList();
+    ipcRenderer.send('whatsapp:chat-list-for-resolve', list);
 });
 
 // Listener 2: Main asks to click a chat
