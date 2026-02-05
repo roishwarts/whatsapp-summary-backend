@@ -1020,11 +1020,11 @@ function handleDeleteScheduledMessage(taskNumber, sender) {
     callSendNotification(sender, confirm).catch(() => {});
 }
 
-// Parse single-shot "שנה את X של הודעה N ל Y" / "change X of message N to Y"
+// Parse single-shot "שנה/תשנה/ערוך/תערוך את X של הודעה N ל Y" / "change X of message N to Y"
 function parseChangeMessageCommand(text) {
     const t = text.trim();
     const hebrewNum = { אחד: 1, שתיים: 2, שלוש: 3, ארבע: 4, חמש: 5 };
-    const m = t.match(/שנה\s+את\s+(השעה|התוכן|השם|הנמען|התאריך)\s+של\s+הודעה\s+(1|2|3|4|5|\d+|אחד|שתיים|שלוש|ארבע|חמש)\s+ל\s*(.+)/i) ||
+    const m = t.match(/(?:שנה|תשנה|ערוך|תערוך)\s+(?:את\s+)?(השעה|התוכן|השם|הנמען|התאריך)\s+של\s+הודעה\s+(1|2|3|4|5|\d+|אחד|שתיים|שלוש|ארבע|חמש)\s+ל\s*(.+)/i) ||
         t.match(/change\s+(time|content|name|recipient|date)\s+of\s+message\s+(1|2|3|4|5|\d+)\s+to\s*(.+)/i);
     if (!m) return null;
     const fieldMap = { 'השעה': 'time', 'התוכן': 'message', 'השם': 'chatName', 'הנמען': 'chatName', 'התאריך': 'date', 'time': 'time', 'content': 'message', 'name': 'chatName', 'recipient': 'chatName', 'date': 'date' };
@@ -1100,7 +1100,7 @@ function handleEditScheduledMessage(taskNumber, sender) {
     const pendingIndices = messages.map((m, i) => (!m.sent ? i : -1)).filter(i => i >= 0);
     const storeIndex = pendingIndices[index];
     _conversationStateBySender[sender] = { flow: 'edit_choice', step: 1, data: { storeIndex, taskNumber } };
-    callSendNotification(sender, 'מה לערוך? 1 - תוכן ההודעה 2 - תאריך 3 - שעה 4 - איש הקשר').catch(() => {});
+    callSendNotification(sender, 'מה לערוך?\n1 - תוכן\n2 - תאריך\n3 - שעה\n4 - איש קשר').catch(() => {});
 }
 
 function parseEditPayload(text) {
