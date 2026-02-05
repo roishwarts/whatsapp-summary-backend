@@ -962,8 +962,7 @@ function handleListScheduledMessages(sender) {
     const pending = getPendingScheduledMessages();
     const isHebrew = /[\u0590-\u05FF]/.test(pending.length ? (pending[0].chatName || '') : '');
     if (pending.length === 0) {
-        const msg = isHebrew ? 'אין הודעות מתוזמנות.' : 'No scheduled messages.';
-        callSendNotification(sender, msg).catch(() => {});
+        callSendNotification(sender, 'אין הודעות מתוזמנות').catch(() => {});
         return;
     }
     const sep = isHebrew ? ' ב' : ' at ';
@@ -1061,8 +1060,9 @@ function handleEditSingleField(taskNumber, field, value, sender) {
         }
         if (time) updates.time = time;
     } else if (field === 'date') {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(value)) updates.date = value;
-        else {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            updates.date = value;
+        } else {
             const now = new Date();
             const lower = value.toLowerCase();
             if (lower.includes('מחר') || lower.includes('tomorrow')) {
@@ -1071,6 +1071,16 @@ function handleEditSingleField(taskNumber, field, value, sender) {
                 updates.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             } else if (lower.includes('היום') || lower.includes('today')) {
                 updates.date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            } else {
+                const dmyMatch = value.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+                if (dmyMatch) {
+                    const day = parseInt(dmyMatch[1], 10);
+                    const month = parseInt(dmyMatch[2], 10);
+                    const year = parseInt(dmyMatch[3], 10);
+                    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1970 && year <= 2100) {
+                        updates.date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    }
+                }
             }
         }
     } else if (field === 'message') updates.message = value;
