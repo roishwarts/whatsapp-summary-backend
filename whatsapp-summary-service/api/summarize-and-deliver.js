@@ -139,8 +139,28 @@ function normalizeSummarySpacing(summary) {
     return summary.replace(/\n{3,}/g, '\n\n');
 }
 
-async function callOpenAIChatAPI(messages, chatName) {
-    const context = `You are an assistant that creates a very short daily brief from busy WhatsApp group chats.
+function buildSelectiveConstraint(summaryComponents) {
+    if (!summaryComponents || summaryComponents.length === 0) return '';
+    const sectionNames = {
+        tldr: 'תקציר (TL;DR / overview)',
+        tasks: 'משימות (ACTION ITEMS)',
+        dates: 'תאריכים (DATES)',
+        decisions: 'החלטות (DECISIONS)',
+        updates: 'עדכונים חשובים (IMPORTANT UPDATES)'
+    };
+    const list = summaryComponents.map(c => sectionNames[c] || c).join(', ');
+    return `CRITICAL CONSTRAINT - USER REQUESTED SELECTIVE CONTENT:
+The user requested ONLY the following sections. You MUST include ONLY these sections in your output. Do NOT include any other section.
+Do NOT include a general TL;DR or overview unless the user requested "תקציר" or "tldr" or "רק תקציר". If they asked only for tasks and dates, output ONLY action items and dates—no summary paragraph.
+Requested sections: ${list}
+Output only these sections, in the order listed above. Omit all other sections completely.
+
+`;
+}
+
+async function callOpenAIChatAPI(messages, chatName, summaryComponents) {
+    const selectiveConstraint = buildSelectiveConstraint(summaryComponents);
+    const context = selectiveConstraint + `You are an assistant that creates a very short daily brief from busy WhatsApp group chats.
 
 The goal is to help the user understand what is IMPORTANT today without reading all messages.
 Do NOT summarize everything.
@@ -325,7 +345,7 @@ module.exports = async (req, res) => {
     }
 
     // Get data sent from the Electron client
-    const { messages, chatName, recipientInfo } = req.body;
+    const { messages, chatName, recipientInfo, summaryComponents } = req.body;
 
     if (!chatName || !recipientInfo) {
         return res.status(400).json({ error: 'Missing required data (chatName or recipientInfo).' });
@@ -359,8 +379,8 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // 1. Generate Summary
-        const summary = await callOpenAIChatAPI(messages, chatName);
+        // 1. Generate Summary (with optional selective components)
+        const summary = await callOpenAIChatAPI(messages, chatName, summaryComponents);
         
         // 2. Process Summary to Add Calendar Links (returns both plain text and HTML)
         const enhancedSummaries = addCalendarLinksToSummary(summary, chatName);

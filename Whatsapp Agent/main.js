@@ -142,8 +142,8 @@ async function handleIncomingWhatsAppCommand(message, sender) {
         const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
         const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
         const listRegex = /(list|רשימה|רשימת הודעות|הודעות מתוזמנות|איזה הודעות מתוזמנות יש לי)/i;
-        const cancelLastRegexEdit = /^(בטל|cancel)\s*$/i;
-        const deleteRegex = /^(delete|מחק|בטל|cancel)(\s+את)?\s*\d+/i;
+        const cancelLastRegexEdit = /^(בטל|ביטול|cancel)\s*$/i;
+        const deleteRegex = /^(delete|מחק|בטל|ביטול|cancel)(\s+את)?\s*\d+/i;
         const editRegex = /^(edit|ערוך)(\s+את)?\s*\d+/i;
         const isTopLevelCommand = scheduleRegex.test(text) || summaryRegex.test(text) || isQuestionIntent(text) || listRegex.test(text) || cancelLastRegexEdit.test(text.trim()) || deleteRegex.test(text) || editRegex.test(text);
         if (isTopLevelCommand) {
@@ -164,14 +164,32 @@ async function handleIncomingWhatsAppCommand(message, sender) {
         return;
     }
 
+    // Summary flow trigger: "סיכום" or "אני רוצה סיכום" (no target) or "סיכום של X" (with target = smart skip step 1)
+    const summaryFlowTrigger = /^(סיכום|אני\s+רוצה\s+סיכום)\s*$/i;
+    const summaryWithTarget = extractChatNameFromText(text);
+    if (summaryFlowTrigger.test(text) || (summaryWithTarget && /^(סיכום|סכם|אני\s+רוצה\s+סיכום)/i.test(text.trim()))) {
+        if (summaryWithTarget) {
+            const list = await getChatListForResolve();
+            const resolvedName = resolveChatName(summaryWithTarget, list) || summaryWithTarget;
+            _conversationStateBySender[sender] = { flow: 'summary', step: 2, data: { chatName: resolvedName } };
+            callSendNotification(sender, 'מה יופיע בסיכום? (אפשר לבחור מספר או פשוט לכתוב מה שרוצים)\n1 - רק תקציר\n2 - תקציר + משימות\n3 - תקציר + תאריכים\n4 - תקציר + עדכונים חשובים\n5 - הכל (סיכום מלא)').catch(() => {});
+            return;
+        }
+        if (summaryFlowTrigger.test(text)) {
+            _conversationStateBySender[sender] = { flow: 'summary', step: 1, data: {} };
+            callSendNotification(sender, 'איזו קבוצה או שיחה לסכם?').catch(() => {});
+            return;
+        }
+    }
+
     // If sender has pending edit, treat as edit payload unless message is another command
     const pendingEdit = _pendingEditBySender[sender];
     if (pendingEdit) {
         const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
         const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
         const listRegex = /(list|רשימה|רשימת הודעות|הודעות מתוזמנות|איזה הודעות מתוזמנות יש לי)/i;
-        const cancelLastRegexEdit = /^(בטל|cancel)\s*$/i;
-        const deleteRegex = /^(delete|מחק|בטל|cancel)(\s+את)?\s*\d+/i;
+        const cancelLastRegexEdit = /^(בטל|ביטול|cancel)\s*$/i;
+        const deleteRegex = /^(delete|מחק|בטל|ביטול|cancel)(\s+את)?\s*\d+/i;
         const editRegex = /^(edit|ערוך)(\s+את)?\s*\d+/i;
         if (scheduleRegex.test(text) || summaryRegex.test(text) || isQuestionIntent(text) || listRegex.test(text) || cancelLastRegexEdit.test(text.trim()) || deleteRegex.test(text) || editRegex.test(text)) {
             delete _pendingEditBySender[sender];
@@ -184,7 +202,7 @@ async function handleIncomingWhatsAppCommand(message, sender) {
     const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
     const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
     const listRegex = /(list|רשימה|רשימת הודעות|הודעות מתוזמנות|איזה הודעות מתוזמנות יש לי)/i;
-    const cancelLastRegex = /^(בטל|cancel)\s*$/i;
+    const cancelLastRegex = /^(בטל|ביטול|cancel)\s*$/i;
     const deleteMatch = text.match(/^(delete|מחק|בטל|cancel)(\s+את)?\s*(\d+)/i);
     const editMatch = text.match(/^(edit|ערוך)(\s+את)?\s*(\d+)/i);
     const changeMsg = parseChangeMessageCommand(text);
@@ -514,8 +532,70 @@ function extractChatNameFromText(text) {
 }
 
 /**
+ * Parse user's summary type selection (numbers 1-5, combinations, or free text like "משימות ותאריכים").
+ * Returns array of component keys: 'tldr' | 'tasks' | 'dates' | 'decisions' | 'updates', or null for full (all).
+ */
+function parseSummaryTypeSelection(text) {
+    const t = (text || '').trim();
+    if (!t) return null;
+
+    const numToComponents = {
+        1: ['tldr'],
+        2: ['tldr', 'tasks'],
+        3: ['tldr', 'dates'],
+        4: ['tldr', 'updates'],
+        5: null
+    };
+
+    const lower = t.toLowerCase();
+    if (/^5\s*$|^הכל|סיכום\s+מלא/.test(lower)) return null;
+
+    const numbers = t.match(/\d/g);
+    if (numbers && numbers.length > 0) {
+        const seen = new Set();
+        const components = [];
+        for (const n of numbers) {
+            const num = parseInt(n, 10);
+            if (num === 5) return null;
+            if (num >= 1 && num <= 4 && !seen.has(num)) {
+                seen.add(num);
+                const comps = numToComponents[num];
+                if (comps) comps.forEach(c => { if (!components.includes(c)) components.push(c); });
+            }
+        }
+        if (components.length > 0) return components;
+    }
+
+    const components = [];
+    if (/תקציר|תמצית|tldr|summary\s+only/i.test(t)) components.push('tldr');
+    if (/משימות|tasks|action\s+items/i.test(t)) components.push('tasks');
+    if (/תאריכים|dates|deadlines/i.test(t)) components.push('dates');
+    if (/החלטות|decisions/i.test(t)) components.push('decisions');
+    if (/עדכונים|updates/i.test(t)) components.push('updates');
+    if (components.length > 0) return components;
+    return null;
+}
+
+/**
+ * Trigger on-demand summary for a chat with optional component filter.
+ */
+function triggerSummaryWithOptions(sender, chatName, summaryComponents) {
+    const onDemandChat = {
+        name: chatName,
+        time: '00:00',
+        frequency: 'on-demand',
+        lastRunTime: null,
+        _onDemandSender: sender,
+        _summaryComponents: summaryComponents || null
+    };
+    processChatQueue([onDemandChat]).catch(err => {
+        console.error('[Pusher Command] Error while running Daily Brief for chat', chatName, err);
+    });
+}
+
+/**
  * Handle a "summary" style command: trigger an immediate Daily Brief
- * for the requested chat/group.
+ * for the requested chat/group (one-shot when chat name is in text; no flow).
  */
 async function handleSummaryCommandFromText(text, sender) {
     let chatName = extractChatNameFromText(text);
@@ -524,25 +604,15 @@ async function handleSummaryCommandFromText(text, sender) {
         return;
     }
 
-    // Resolve to actual chat name (e.g. with emoji) so summary title shows correct name
     const list = await getChatListForResolve();
     const resolvedName = resolveChatName(chatName, list);
     if (resolvedName) chatName = resolvedName;
 
     console.log(`[Pusher Command] Triggering Daily Brief for chat: "${chatName}" (sender: ${sender || 'unknown'})`);
 
-    const onDemandChat = {
-        name: chatName,
-        time: '00:00',
-        frequency: 'on-demand',
-        lastRunTime: null,
-        _onDemandSender: sender
-    };
-
-    processChatQueue([onDemandChat]).catch(err => {
-        console.error('[Pusher Command] Error while running Daily Brief for chat', chatName, err);
-    });
+    triggerSummaryWithOptions(sender, chatName, null);
 }
+
 
 /**
  * Parse a scheduling command and create a scheduled message entry.
@@ -1334,6 +1404,32 @@ async function handleConversationStep(text, sender) {
             delete _conversationStateBySender[sender];
         }
     }
+
+    if (state.flow === 'summary') {
+        if (state.step === 1) {
+            const partialName = text.trim().replace(/^ל\s*/, '').trim() || text.trim();
+            if (!partialName) {
+                callSendNotification(sender, 'לא ציינת קבוצה או שיחה. כתוב את שם הקבוצה או השיחה.').catch(() => {});
+                return;
+            }
+            const list = await getChatListForResolve();
+            const resolvedName = resolveChatName(partialName, list) || partialName;
+            state.data.chatName = resolvedName;
+            state.step = 2;
+            callSendNotification(sender, 'מה יופיע בסיכום? (אפשר לבחור מספר או פשוט לכתוב מה שרוצים)\n1 - רק תקציר\n2 - תקציר + משימות\n3 - תקציר + תאריכים\n4 - תקציר + עדכונים חשובים\n5 - הכל (סיכום מלא)').catch(() => {});
+            return;
+        }
+        if (state.step === 2) {
+            const summaryComponents = parseSummaryTypeSelection(text);
+            const chatName = state.data.chatName;
+            if (!chatName) {
+                delete _conversationStateBySender[sender];
+                return;
+            }
+            delete _conversationStateBySender[sender];
+            triggerSummaryWithOptions(sender, chatName, summaryComponents);
+        }
+    }
 }
 
 /**
@@ -1450,7 +1546,7 @@ function checkMissedScheduledMessagesOnStartup() {
 // Base URL for Vercel API - must match the deployment where summarize-and-deliver and answer-question run (e.g. whatsapp-summary-backend.vercel.app). Override with env VERCEL_API_BASE if different.
 const VERCEL_API_BASE = process.env.VERCEL_API_BASE || 'https://whatsapp-summary-backend.vercel.app';
 
-async function callVercelBackend(chatName, messages, recipientInfoOverride = null) {
+async function callVercelBackend(chatName, messages, recipientInfoOverride = null, summaryComponents = null) {
     const VERCEL_URL = `${VERCEL_API_BASE}/api/summarize-and-deliver`;
     
     const recipientInfo = recipientInfoOverride || {
@@ -1461,9 +1557,11 @@ async function callVercelBackend(chatName, messages, recipientInfoOverride = nul
     const payload = {
         chatName: chatName,
         messages: messages,
-        // Match the "recipientInfo" object your Vercel code expects
         recipientInfo: recipientInfo
     };
+    if (summaryComponents && summaryComponents.length > 0) {
+        payload.summaryComponents = summaryComponents;
+    }
 
     console.log(`[Network] Sending to Vercel for ${chatName}. Target: ${payload.recipientInfo.recipientPhoneNumber}`);
 
@@ -2673,7 +2771,8 @@ ipcMain.on('whatsapp:response-messages', async (event, messages) => {
         }
     }
 
-    const result = await callVercelBackend(currentlyRunningChat.name, messages);
+    const summaryComponents = currentlyRunningChat._summaryComponents || null;
+    const result = await callVercelBackend(currentlyRunningChat.name, messages, null, summaryComponents);
 
     if (isUIWindowAvailable()) {
         try {
