@@ -164,6 +164,18 @@ async function handleIncomingWhatsAppCommand(message, sender) {
         return;
     }
 
+    // Schedule flow: "שלח הודעה ב21.2 ב10:20" or "תזמן הודעה מחר 21:00" etc. (intent + optional date/time)
+    const scheduleFlowIntent = parseScheduleFlowIntent(text);
+    if (scheduleFlowIntent && scheduleFlowIntent.startFlow) {
+        console.log('[Pusher Command] Detected schedule flow intent (with optional date/time)');
+        const data = {};
+        if (scheduleFlowIntent.date) data.date = scheduleFlowIntent.date;
+        if (scheduleFlowIntent.time) data.time = scheduleFlowIntent.time;
+        _conversationStateBySender[sender] = { flow: 'schedule_new', step: 1, data };
+        callSendNotification(sender, 'למי לשלוח את ההודעה?').catch(() => {});
+        return;
+    }
+
     // Summary flow trigger: "סיכום" or "אני רוצה סיכום" (no target) or "סיכום של X" (with target = smart skip step 1)
     const summaryFlowTrigger = /^(סיכום|אני\s+רוצה\s+סיכום)\s*$/i;
     const summaryWithTarget = extractChatNameFromText(text);
@@ -714,6 +726,30 @@ function splitMessageContentFromText(text) {
     return { header, content };
 }
 
+/**
+ * Detect "schedule/send message" intent with optional date/time (e.g. "שלח הודעה ב21.2 ב10:20").
+ * Returns { startFlow: true, date?, time? } when user wants to schedule but not a complete one-shot; otherwise null.
+ */
+function parseScheduleFlowIntent(text) {
+    if (!text) return null;
+    const t = text.trim();
+    const exactNewTrigger = /^(תזמן\s+הודעה\s+חדשה|הודעה\s+חדשה)\s*$/;
+    if (exactNewTrigger.test(t)) return null;
+
+    const scheduleVerb = /(?:^|\s)(?:שלח|תזמן|send|schedule)\s*(?:הודעה|message)?|(?:^|\s)(?:הודעה|message)\s*(?:שלח|תזמן|send|schedule)/i;
+    if (!scheduleVerb.test(t)) return null;
+
+    const oneShot = parseScheduleCommandFromText(t);
+    if (oneShot) return null;
+
+    const dateTime = parseDateAndTimeOnly(t);
+    return {
+        startFlow: true,
+        date: dateTime ? dateTime.date : undefined,
+        time: dateTime ? dateTime.time : undefined
+    };
+}
+
 /** Parse only date and time from text (for multi-step schedule flow step 3). Returns { date, time } or null. */
 function parseDateAndTimeOnly(text) {
     if (!text) return null;
@@ -1261,12 +1297,17 @@ async function handleConversationStep(text, sender) {
             const list = await getChatListForResolve();
             const fullChatName = resolveChatName(forResolve, list) || forResolve;
             state.data.chatName = fullChatName;
-            state.step = 2;
-            callSendNotification(sender, 'מעולה, באיזה תאריך ושעה תרצה לשלוח את ההודעה?').catch(() => {});
+            if (state.data.date && state.data.time) {
+                state.step = 3;
+                callSendNotification(sender, 'מה התוכן של ההודעה?').catch(() => {});
+            } else {
+                state.step = 2;
+                callSendNotification(sender, 'מעולה, באיזה תאריך ושעה תרצה לשלוח את ההודעה?').catch(() => {});
+            }
             return;
         }
         if (state.step === 2) {
-            // Capture date/time
+            // Capture date/time (only when not already set from trigger)
             const parsed = parseDateAndTimeOnly(text);
             if (!parsed) {
                 callSendNotification(sender, 'לא הצלחתי לזהות תאריך ושעה. נסה למשל: מחר 21:00 או 31.1 14:30').catch(() => {});
@@ -1275,7 +1316,7 @@ async function handleConversationStep(text, sender) {
             state.data.date = parsed.date;
             state.data.time = parsed.time;
             state.step = 3;
-            callSendNotification(sender, 'מה תוכן ההודעה?').catch(() => {});
+            callSendNotification(sender, 'מה התוכן של ההודעה?').catch(() => {});
             return;
         }
         if (state.step === 3) {

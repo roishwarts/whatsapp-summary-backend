@@ -166,6 +166,23 @@ function getFirstSentence(text) {
     return match ? match[0].trim() : t.split(/\n/)[0].trim();
 }
 
+/** Hebrew labels for sections (for "not found" messages and empty-section placeholders). */
+const SECTION_LABELS_HE = {
+    tldr: 'תקציר',
+    tasks: 'משימות',
+    dates: 'תאריכים',
+    decisions: 'החלטות',
+    updates: 'עדכונים חשובים'
+};
+
+/** Build "no messages" text when user requested specific components: e.g. "לא נמצאו משימות בשיחה עם טל." */
+function buildNoMessagesTextForComponents(summaryComponents, chatName) {
+    if (!summaryComponents || summaryComponents.length === 0) return null;
+    const labels = summaryComponents.map(c => SECTION_LABELS_HE[c] || c);
+    const list = labels.length === 1 ? labels[0] : labels.slice(0, -1).join(', ') + ' ו' + labels[labels.length - 1];
+    return `לא נמצאו ${list} בשיחה עם ${chatName}.`;
+}
+
 /** Section headers (Hebrew and English) that map to component keys. */
 const SECTION_HEADERS = [
     { key: 'tldr', patterns: [/^TL;DR\s*$/im, /^תקציר\s*$/im, /^תמצית\s*$/im, /^[\d.]*\s*TL;DR\s*$/im, /^[\d.]*\s*תקציר\s*$/im] },
@@ -177,7 +194,7 @@ const SECTION_HEADERS = [
 
 /**
  * Filter summary to only include sections requested by the user.
- * Title = first sentence of the full summary (always kept). Rest = only requested sections.
+ * Title = first sentence (always kept). For each requested section: show content or "לא נמצאו X בשיחה."
  */
 function filterSummaryByComponents(summary, summaryComponents) {
     if (!summary || !summary.trim()) return summary;
@@ -186,48 +203,54 @@ function filterSummaryByComponents(summary, summaryComponents) {
     const set = new Set(summaryComponents);
     const firstSentence = getFirstSentence(summary);
     const rest = summary.slice(firstSentence.length).trim();
-    if (!rest) return firstSentence;
 
-    const lines = rest.split(/\n/);
-    const matches = [];
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        for (const { key, patterns } of SECTION_HEADERS) {
-            for (const p of patterns) {
-                if (p.test(line)) {
-                    matches.push({ index: i, key });
-                    break;
+    const contentByKey = {};
+    const getSectionContent = (startLine, endLine, lines) => lines.slice(startLine, endLine).join('\n').trim();
+
+    if (rest) {
+        const lines = rest.split(/\n/);
+        const matches = [];
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            for (const { key, patterns } of SECTION_HEADERS) {
+                for (const p of patterns) {
+                    if (p.test(line)) {
+                        matches.push({ index: i, key });
+                        break;
+                    }
                 }
             }
         }
-    }
-    matches.sort((a, b) => a.index - b.index);
+        matches.sort((a, b) => a.index - b.index);
 
-    const order = summaryComponents;
-    const parts = [];
-    const seen = new Set();
-
-    const getSectionContent = (startLine, endLine) => {
-        return lines.slice(startLine, endLine).join('\n').trim();
-    };
-
-    for (let i = 0; i < matches.length; i++) {
-        const start = matches[i].index + 1;
-        const end = i + 1 < matches.length ? matches[i + 1].index : lines.length;
-        const key = matches[i].key;
-        if (set.has(key) && !seen.has(key)) {
-            const content = getSectionContent(start, end);
-            if (content) {
-                const header = lines[matches[i].index].trim();
-                parts.push(`${header}\n${content}`);
-                seen.add(key);
+        for (let i = 0; i < matches.length; i++) {
+            const start = matches[i].index + 1;
+            const end = i + 1 < matches.length ? matches[i + 1].index : lines.length;
+            const key = matches[i].key;
+            if (set.has(key)) {
+                const content = getSectionContent(start, end, lines);
+                if (content && !contentByKey[key]) {
+                    const header = lines[matches[i].index].trim();
+                    contentByKey[key] = `${header}\n${content}`;
+                }
             }
+        }
+
+        const beforeFirst = matches.length > 0 ? getSectionContent(0, matches[0].index, lines) : getSectionContent(0, lines.length, lines);
+        if (set.has('tldr') && beforeFirst.trim() && !contentByKey.tldr) {
+            contentByKey.tldr = beforeFirst.trim();
         }
     }
 
-    const beforeFirst = matches.length > 0 ? getSectionContent(0, matches[0].index) : getSectionContent(0, lines.length);
-    if (set.has('tldr') && beforeFirst.trim() && !seen.has('tldr')) {
-        parts.unshift(beforeFirst.trim());
+    const parts = [];
+    for (const key of summaryComponents) {
+        const label = SECTION_LABELS_HE[key] || key;
+        if (contentByKey[key]) {
+            parts.push(contentByKey[key]);
+        } else {
+            const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
+            parts.push(`${label}\n${notFound}`);
+        }
     }
 
     const body = parts.join('\n\n').trim();
@@ -431,11 +454,16 @@ module.exports = async (req, res) => {
     if (!messages || messages.length === 0) {
         console.log(`[Summarize] No messages found for chat: ${chatName}`);
         
-        // Determine message language based on chat name
         const isHebrew = /[\u0590-\u05FF]/.test(chatName);
-        const noMessagesText = isHebrew 
-            ? `לא נמצאו הודעות מהיום בקבוצה "${chatName}".`
-            : `No messages found from today in the chat "${chatName}".`;
+        let noMessagesText;
+        const componentMessage = buildNoMessagesTextForComponents(summaryComponents, chatName);
+        if (componentMessage) {
+            noMessagesText = componentMessage;
+        } else if (isHebrew) {
+            noMessagesText = `לא נמצאו הודעות מהיום בשיחה "${chatName}".`;
+        } else {
+            noMessagesText = `No messages found from today in the chat "${chatName}".`;
+        }
         
         // Send notification via WhatsApp if recipient phone number is provided
         let whatsappStatus = 'WhatsApp Skipped: No recipient number.';
