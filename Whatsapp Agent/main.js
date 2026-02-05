@@ -45,6 +45,7 @@ let currentlyRunningChat = null;
 let pusherInstance = null;
 let powerSaveBlockerId = null;
 const _pendingEditBySender = {};
+const _conversationStateBySender = {};
 let _chatListResolve = null;
 
 // --- 2.1. Real-time Command Handling (Pusher Listener) ---
@@ -130,7 +131,36 @@ async function handleIncomingWhatsAppCommand(message, sender) {
     if (changeToMatch) {
         console.log('[Pusher Command] Detected CHANGE TO (שנה ל) intent');
         if (_pendingEditBySender[sender]) delete _pendingEditBySender[sender];
+        if (_conversationStateBySender[sender]) delete _conversationStateBySender[sender];
         await handleChangeRecipient(text, sender);
+        return;
+    }
+
+    // Conversation state: if user is in a multi-step flow, either handle step or clear and fall through on top-level command
+    const convState = _conversationStateBySender[sender];
+    if (convState) {
+        const summaryRegex = /(summary|summarize|סכם|סיכום)/i;
+        const scheduleRegex = /(schedule|send at|תזמן|שלח הודעה)/i;
+        const listRegex = /(list|רשימה|רשימת הודעות|הודעות מתוזמנות|איזה הודעות מתוזמנות יש לי)/i;
+        const cancelLastRegexEdit = /^(בטל|cancel)\s*$/i;
+        const deleteRegex = /^(delete|מחק|בטל|cancel)(\s+את)?\s*\d+/i;
+        const editRegex = /^(edit|ערוך)(\s+את)?\s*\d+/i;
+        const isTopLevelCommand = scheduleRegex.test(text) || summaryRegex.test(text) || isQuestionIntent(text) || listRegex.test(text) || cancelLastRegexEdit.test(text.trim()) || deleteRegex.test(text) || editRegex.test(text);
+        if (isTopLevelCommand) {
+            delete _conversationStateBySender[sender];
+            if (_pendingEditBySender[sender]) delete _pendingEditBySender[sender];
+        } else {
+            await handleConversationStep(text, sender);
+            return;
+        }
+    }
+
+    // New Message Schedule flow trigger (exact only)
+    const scheduleNewTrigger = /^(תזמן\s+הודעה\s+חדשה|הודעה\s+חדשה)\s*$/;
+    if (scheduleNewTrigger.test(text)) {
+        console.log('[Pusher Command] Detected schedule-new flow trigger');
+        _conversationStateBySender[sender] = { flow: 'schedule_new', step: 1, data: {} };
+        callSendNotification(sender, 'אני אעזור לך לשלוח הודעה, למי תרצה לשלוח?').catch(() => {});
         return;
     }
 
@@ -614,6 +644,73 @@ function splitMessageContentFromText(text) {
     return { header, content };
 }
 
+/** Parse only date and time from text (for multi-step schedule flow step 3). Returns { date, time } or null. */
+function parseDateAndTimeOnly(text) {
+    if (!text) return null;
+    const fullText = text.trim();
+
+    // Time: HH:MM or bare hour 0-23 (avoid matching day from d.m)
+    let time = null;
+    const timeColonMatch = fullText.match(/(\d{1,2}):(\d{2})/);
+    if (timeColonMatch) {
+        const h = parseInt(timeColonMatch[1], 10);
+        const m = parseInt(timeColonMatch[2], 10);
+        if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            time = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+        }
+    }
+    if (!time) {
+        const bareHourMatch = fullText.match(/\b(\d{1,2})\b(?!\.)/);
+        if (bareHourMatch) {
+            const hour = parseInt(bareHourMatch[1], 10);
+            if (hour >= 0 && hour <= 23) {
+                time = String(hour).padStart(2, '0') + ':00';
+            }
+        }
+    }
+    if (!time) return null;
+
+    // Date: YYYY-MM-DD, d.m, or מחר/היום
+    const dateMatch = fullText.match(/(\d{4}-\d{2}-\d{2})/);
+    const dmMatch = !dateMatch ? fullText.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+    const now = new Date();
+    let date;
+
+    if (dateMatch) {
+        date = dateMatch[1];
+    } else if (dmMatch) {
+        const day = parseInt(dmMatch[1], 10);
+        const month = parseInt(dmMatch[2], 10);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            const year = now.getFullYear();
+            let dateObj = new Date(year, month - 1, day);
+            if (dateObj < new Date(year, now.getMonth(), now.getDate())) {
+                dateObj = new Date(year + 1, month - 1, day);
+            }
+            date = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+        }
+    }
+    const lower = fullText.toLowerCase();
+    if (!date && (lower.includes('מחר') || lower.includes('tomorrow'))) {
+        const d = new Date(now);
+        d.setDate(d.getDate() + 1);
+        date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    if (!date && (lower.includes('היום') || lower.includes('today'))) {
+        date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+    if (!date) {
+        const [h, m] = time.split(':').map(Number);
+        const scheduled = new Date(now);
+        scheduled.setHours(h, m, 0, 0);
+        if (scheduled <= now) {
+            scheduled.setDate(scheduled.getDate() + 1);
+        }
+        date = `${scheduled.getFullYear()}-${String(scheduled.getMonth() + 1).padStart(2, '0')}-${String(scheduled.getDate()).padStart(2, '0')}`;
+    }
+    return { date, time };
+}
+
 function parseScheduleCommandFromText(text) {
     if (!text) return null;
 
@@ -1002,13 +1099,8 @@ function handleEditScheduledMessage(taskNumber, sender) {
     const messages = store.get('scheduledMessages') || [];
     const pendingIndices = messages.map((m, i) => (!m.sent ? i : -1)).filter(i => i >= 0);
     const storeIndex = pendingIndices[index];
-    const task = messages[storeIndex];
-    const isHebrew = /[\u0590-\u05FF]/.test(task.chatName || '');
-    const current = isHebrew
-        ? `${taskNumber}. ${task.chatName} ב${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. השב עם הערכים החדשים (שם, תאריך, שעה, תוכן ההודעה). אפשר לשנות פרמטר אחד או יותר.`
-        : `${taskNumber}. ${task.chatName} at ${task.date} ${task.time} — ${(task.message || '').substring(0, 50)}${(task.message || '').length > 50 ? '...' : ''}. Reply with new values (name, date, time, message content). You can change one or more parameters.`;
-    _pendingEditBySender[sender] = { storeIndex, taskNumber };
-    callSendNotification(sender, current).catch(() => {});
+    _conversationStateBySender[sender] = { flow: 'edit_choice', step: 1, data: { storeIndex, taskNumber } };
+    callSendNotification(sender, 'מה תרצה לערוך? 1 - תוכן ההודעה 2 - תאריך 3 - שעה 4 - איש הקשר').catch(() => {});
 }
 
 function parseEditPayload(text) {
@@ -1070,6 +1162,167 @@ function handleEditPayload(text, sender) {
     const isHebrew = /[\u0590-\u05FF]/.test(task.chatName || '');
     const confirm = isHebrew ? `הודעה ${pending.taskNumber} עודכנה.` : `Message ${pending.taskNumber} updated.`;
     callSendNotification(sender, confirm).catch(() => {});
+}
+
+/** Handle one step of a multi-step flow (schedule_new steps 2–4, edit_choice steps 2–3). */
+async function handleConversationStep(text, sender) {
+    const state = _conversationStateBySender[sender];
+    if (!state) return;
+
+    if (state.flow === 'schedule_new') {
+        if (state.step === 1) {
+            // Capture recipient
+            const partialName = text.trim();
+            if (!partialName) {
+                callSendNotification(sender, 'לא ציינת למי לשלוח. כתוב שם איש קשר או קבוצה.').catch(() => {});
+                return;
+            }
+            const list = await getChatListForResolve();
+            const fullChatName = resolveChatName(partialName, list) || partialName;
+            state.data.chatName = fullChatName;
+            state.step = 2;
+            callSendNotification(sender, 'מעולה, באיזה תאריך ושעה תרצה לשלוח את ההודעה?').catch(() => {});
+            return;
+        }
+        if (state.step === 2) {
+            // Capture date/time
+            const parsed = parseDateAndTimeOnly(text);
+            if (!parsed) {
+                callSendNotification(sender, 'לא הצלחתי לזהות תאריך ושעה. נסה למשל: מחר 21:00 או 31.1 14:30').catch(() => {});
+                return;
+            }
+            state.data.date = parsed.date;
+            state.data.time = parsed.time;
+            state.step = 3;
+            callSendNotification(sender, 'מה תוכן ההודעה?').catch(() => {});
+            return;
+        }
+        if (state.step === 3) {
+            // Finalize: save and confirm
+            const content = text.trim() || 'הודעה מתוזמנת';
+            const { chatName, date, time } = state.data;
+            const [y, mo, d] = date.split('-').map(Number);
+            const [h, min] = time.split(':').map(Number);
+            const scheduledTime = new Date(y, mo - 1, d, h, min, 0, 0);
+            const now = new Date();
+            if (scheduledTime.getTime() < now.getTime() - 60000) {
+                callSendNotification(sender, `הזמן שבחרת (${date} ${time}) כבר עבר. בחר תאריך ושעה בעתיד.`).catch(() => {});
+                delete _conversationStateBySender[sender];
+                return;
+            }
+            const existing = store.get('scheduledMessages') || [];
+            const updated = [
+                ...existing,
+                {
+                    chatName,
+                    message: content,
+                    date,
+                    time,
+                    sent: false,
+                    sender: sender || null,
+                    hadMultipleMatches: false
+                }
+            ];
+            store.set('scheduledMessages', updated);
+            updatePowerSaveBlocker();
+            callSendNotification(sender, `תזמנתי לך הודעה ל${chatName} בתאריך ${date} בשעה ${time}.\nתוכן ההודעה: '${content}'. השב 'בטל' לביטול.`).catch(() => {});
+            if (!automationInterval) startAutomationLoop();
+            if (isUIWindowAvailable() && uiWindow) {
+                try {
+                    uiWindow.webContents.send('main:render-scheduled-messages', updated.filter(m => !m.sent));
+                    uiWindow.webContents.send('main:automation-status', { message: `Scheduled message for "${chatName}" at ${date} ${time} (via WhatsApp step flow)` });
+                } catch (err) {}
+            }
+            delete _conversationStateBySender[sender];
+            return;
+        }
+    }
+
+    if (state.flow === 'edit_choice') {
+        if (state.step === 1) {
+            const choice = text.trim();
+            const map = { '1': 'message', '2': 'date', '3': 'time', '4': 'chatName' };
+            const editField = map[choice];
+            if (!editField) {
+                callSendNotification(sender, 'בחר 1, 2, 3 או 4.').catch(() => {});
+                return;
+            }
+            state.data.editField = editField;
+            state.step = 2;
+            const prompts = {
+                message: 'בחרת לערוך את תוכן ההודעה. מה תוכן ההודעה המעודכן?',
+                date: 'בחרת לערוך את התאריך. מה התאריך המעודכן?',
+                time: 'בחרת לערוך את השעה, מה השעה המעודכנת שבה תרצה שההודעה תשלח?',
+                chatName: 'בחרת לערוך את איש הקשר. למי תרצה לשלוח את ההודעה?'
+            };
+            callSendNotification(sender, prompts[editField]).catch(() => {});
+            return;
+        }
+        if (state.step === 2) {
+            const messages = store.get('scheduledMessages') || [];
+            const { storeIndex, taskNumber, editField } = state.data;
+            if (storeIndex < 0 || storeIndex >= messages.length) {
+                delete _conversationStateBySender[sender];
+                return;
+            }
+            const task = messages[storeIndex];
+            const value = text.trim();
+
+            if (editField === 'message') {
+                task.message = value || task.message;
+            } else if (editField === 'date') {
+                const dateMatch = value.match(/(\d{4}-\d{2}-\d{2})/);
+                const dmMatch = !dateMatch && value.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) ? value.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+                const now = new Date();
+                if (dateMatch) {
+                    task.date = dateMatch[1];
+                } else if (dmMatch) {
+                    const day = parseInt(dmMatch[1], 10);
+                    const month = parseInt(dmMatch[2], 10);
+                    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                        const year = now.getFullYear();
+                        let dateObj = new Date(year, month - 1, day);
+                        if (dateObj < new Date(year, now.getMonth(), now.getDate())) {
+                            dateObj = new Date(year + 1, month - 1, day);
+                        }
+                        task.date = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                    }
+                } else {
+                    const lower = value.toLowerCase();
+                    if (lower.includes('מחר') || lower.includes('tomorrow')) {
+                        const d = new Date(now);
+                        d.setDate(d.getDate() + 1);
+                        task.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    } else if (lower.includes('היום') || lower.includes('today')) {
+                        task.date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                    }
+                }
+            } else if (editField === 'time') {
+                const timeColonMatch = value.match(/(\d{1,2}):(\d{2})/);
+                if (timeColonMatch) {
+                    const h = parseInt(timeColonMatch[1], 10);
+                    const m = parseInt(timeColonMatch[2], 10);
+                    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+                        task.time = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                    }
+                } else {
+                    const hour = parseInt(value.replace(/\D/g, ''), 10);
+                    if (!isNaN(hour) && hour >= 0 && hour <= 23) {
+                        task.time = String(hour).padStart(2, '0') + ':00';
+                    }
+                }
+            } else if (editField === 'chatName') {
+                const list = await getChatListForResolve();
+                task.chatName = resolveChatName(value, list) || value;
+            }
+
+            store.set('scheduledMessages', messages);
+            updatePowerSaveBlocker();
+            if (isUIWindowAvailable() && uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(m => !m.sent));
+            callSendNotification(sender, `הודעה ${taskNumber} עודכנה.`).catch(() => {});
+            delete _conversationStateBySender[sender];
+        }
+    }
 }
 
 /**
