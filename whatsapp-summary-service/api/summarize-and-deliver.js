@@ -150,12 +150,88 @@ function buildSelectiveConstraint(summaryComponents) {
     };
     const list = summaryComponents.map(c => sectionNames[c] || c).join(', ');
     return `CRITICAL CONSTRAINT - USER REQUESTED SELECTIVE CONTENT:
-The user requested ONLY the following sections. You MUST include ONLY these sections in your output. Do NOT include any other section.
-Do NOT include a general TL;DR or overview unless the user requested "תקציר" or "tldr" or "רק תקציר". If they asked only for tasks and dates, output ONLY action items and dates—no summary paragraph.
+The user requested ONLY the following sections. You MUST output ONLY these sections. Do NOT add any other section (no TL;DR, no action items, no dates, no decisions, no updates unless listed).
+Do NOT include a general summary/overview paragraph unless "תקציר" or "tldr" is in the requested list. If they asked only for משימות and תאריכים, output ONLY those two sections—nothing else.
 Requested sections: ${list}
-Output only these sections, in the order listed above. Omit all other sections completely.
+Output ONLY these sections, in this order. No other text.
 
 `;
+}
+
+/** Extract first sentence from text (up to first period, question mark, or newline). */
+function getFirstSentence(text) {
+    if (!text || !text.trim()) return '';
+    const t = text.trim();
+    const match = t.match(/^[^.\n?!]+[.\n?!]?/);
+    return match ? match[0].trim() : t.split(/\n/)[0].trim();
+}
+
+/** Section headers (Hebrew and English) that map to component keys. */
+const SECTION_HEADERS = [
+    { key: 'tldr', patterns: [/^TL;DR\s*$/im, /^תקציר\s*$/im, /^תמצית\s*$/im, /^[\d.]*\s*TL;DR\s*$/im, /^[\d.]*\s*תקציר\s*$/im] },
+    { key: 'tasks', patterns: [/^ACTION ITEMS?\s*$/im, /^משימות\s*$/im, /^[\d.]*\s*ACTION ITEMS?\s*$/im, /^[\d.]*\s*משימות\s*$/im] },
+    { key: 'dates', patterns: [/^DATES?\s*$/im, /^DATES?\s*&\s*DEADLINES?\s*$/im, /^תאריכים\s*$/im, /^[\d.]*\s*DATES?\s*$/im, /^[\d.]*\s*תאריכים\s*$/im] },
+    { key: 'decisions', patterns: [/^DECISIONS?\s*$/im, /^החלטות\s*$/im, /^[\d.]*\s*DECISIONS?\s*$/im, /^[\d.]*\s*החלטות\s*$/im] },
+    { key: 'updates', patterns: [/^IMPORTANT UPDATES?\s*$/im, /^עדכונים חשובים\s*$/im, /^[\d.]*\s*IMPORTANT UPDATES?\s*$/im, /^[\d.]*\s*עדכונים חשובים\s*$/im] }
+];
+
+/**
+ * Filter summary to only include sections requested by the user.
+ * Title = first sentence of the full summary (always kept). Rest = only requested sections.
+ */
+function filterSummaryByComponents(summary, summaryComponents) {
+    if (!summary || !summary.trim()) return summary;
+    if (!summaryComponents || summaryComponents.length === 0) return summary;
+
+    const set = new Set(summaryComponents);
+    const firstSentence = getFirstSentence(summary);
+    const rest = summary.slice(firstSentence.length).trim();
+    if (!rest) return firstSentence;
+
+    const lines = rest.split(/\n/);
+    const matches = [];
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        for (const { key, patterns } of SECTION_HEADERS) {
+            for (const p of patterns) {
+                if (p.test(line)) {
+                    matches.push({ index: i, key });
+                    break;
+                }
+            }
+        }
+    }
+    matches.sort((a, b) => a.index - b.index);
+
+    const order = summaryComponents;
+    const parts = [];
+    const seen = new Set();
+
+    const getSectionContent = (startLine, endLine) => {
+        return lines.slice(startLine, endLine).join('\n').trim();
+    };
+
+    for (let i = 0; i < matches.length; i++) {
+        const start = matches[i].index + 1;
+        const end = i + 1 < matches.length ? matches[i + 1].index : lines.length;
+        const key = matches[i].key;
+        if (set.has(key) && !seen.has(key)) {
+            const content = getSectionContent(start, end);
+            if (content) {
+                const header = lines[matches[i].index].trim();
+                parts.push(`${header}\n${content}`);
+                seen.add(key);
+            }
+        }
+    }
+
+    const beforeFirst = matches.length > 0 ? getSectionContent(0, matches[0].index) : getSectionContent(0, lines.length);
+    if (set.has('tldr') && beforeFirst.trim() && !seen.has('tldr')) {
+        parts.unshift(beforeFirst.trim());
+    }
+
+    const body = parts.join('\n\n').trim();
+    return body ? `${firstSentence}\n\n${body}` : firstSentence;
 }
 
 async function callOpenAIChatAPI(messages, chatName, summaryComponents) {
@@ -380,7 +456,10 @@ module.exports = async (req, res) => {
 
     try {
         // 1. Generate Summary (with optional selective components)
-        const summary = await callOpenAIChatAPI(messages, chatName, summaryComponents);
+        let summary = await callOpenAIChatAPI(messages, chatName, summaryComponents);
+        if (summaryComponents && summaryComponents.length > 0) {
+            summary = filterSummaryByComponents(summary, summaryComponents);
+        }
         
         // 2. Process Summary to Add Calendar Links (returns both plain text and HTML)
         const enhancedSummaries = addCalendarLinksToSummary(summary, chatName);
