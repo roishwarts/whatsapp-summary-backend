@@ -160,7 +160,7 @@ async function handleIncomingWhatsAppCommand(message, sender) {
     if (scheduleNewTrigger.test(text)) {
         console.log('[Pusher Command] Detected schedule-new flow trigger');
         _conversationStateBySender[sender] = { flow: 'schedule_new', step: 1, data: {} };
-        callSendNotification(sender, 'אני אעזור לך לשלוח הודעה, למי תרצה לשלוח?').catch(() => {});
+        callSendNotification(sender, 'למי לשלוח את ההודעה?').catch(() => {});
         return;
     }
 
@@ -1100,7 +1100,7 @@ function handleEditScheduledMessage(taskNumber, sender) {
     const pendingIndices = messages.map((m, i) => (!m.sent ? i : -1)).filter(i => i >= 0);
     const storeIndex = pendingIndices[index];
     _conversationStateBySender[sender] = { flow: 'edit_choice', step: 1, data: { storeIndex, taskNumber } };
-    callSendNotification(sender, 'מה תרצה לערוך? 1 - תוכן ההודעה 2 - תאריך 3 - שעה 4 - איש הקשר').catch(() => {});
+    callSendNotification(sender, 'מה לערוך? 1 - תוכן ההודעה 2 - תאריך 3 - שעה 4 - איש הקשר').catch(() => {});
 }
 
 function parseEditPayload(text) {
@@ -1171,14 +1171,15 @@ async function handleConversationStep(text, sender) {
 
     if (state.flow === 'schedule_new') {
         if (state.step === 1) {
-            // Capture recipient
-            const partialName = text.trim();
+            // Capture recipient; strip Hebrew "ל" prefix (e.g. "לדני" -> "דני")
+            let partialName = text.trim();
             if (!partialName) {
                 callSendNotification(sender, 'לא ציינת למי לשלוח. כתוב שם איש קשר או קבוצה.').catch(() => {});
                 return;
             }
+            const forResolve = partialName.replace(/^ל\s*/, '').trim() || partialName;
             const list = await getChatListForResolve();
-            const fullChatName = resolveChatName(partialName, list) || partialName;
+            const fullChatName = resolveChatName(forResolve, list) || forResolve;
             state.data.chatName = fullChatName;
             state.step = 2;
             callSendNotification(sender, 'מעולה, באיזה תאריך ושעה תרצה לשלוח את ההודעה?').catch(() => {});
@@ -1252,8 +1253,8 @@ async function handleConversationStep(text, sender) {
             const prompts = {
                 message: 'בחרת לערוך את תוכן ההודעה. מה תוכן ההודעה המעודכן?',
                 date: 'בחרת לערוך את התאריך. מה התאריך המעודכן?',
-                time: 'בחרת לערוך את השעה, מה השעה המעודכנת שבה תרצה שההודעה תשלח?',
-                chatName: 'בחרת לערוך את איש הקשר. למי תרצה לשלוח את ההודעה?'
+                time: 'בחרת לערוך את השעה. מה השעה המעודכנת?',
+                chatName: 'בחרת לערוך את איש הקשר. מי האיש קשר המעודכן?'
             };
             callSendNotification(sender, prompts[editField]).catch(() => {});
             return;
