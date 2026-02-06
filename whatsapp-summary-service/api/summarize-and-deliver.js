@@ -275,9 +275,32 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            // LLM always includes headers (per template), so contentByKey already has header + content
-            // Just output it as-is (we already cleaned duplicate headers during extraction)
-            parts.push(contentByKey[key]);
+            // Final cleanup: ensure header appears only once at the start
+            let output = contentByKey[key];
+            const outputLines = output.split('\n');
+            const label = SECTION_LABELS_HE[key] || key;
+            
+            // Find first occurrence of header
+            let firstHeaderIndex = -1;
+            for (let i = 0; i < outputLines.length; i++) {
+                if (outputLines[i].trim() === label) {
+                    firstHeaderIndex = i;
+                    break;
+                }
+            }
+            
+            if (firstHeaderIndex >= 0) {
+                // Header found - keep first occurrence, remove all others
+                const filteredOutput = [outputLines[firstHeaderIndex]]; // Keep first header
+                for (let i = firstHeaderIndex + 1; i < outputLines.length; i++) {
+                    if (outputLines[i].trim() !== label) {
+                        filteredOutput.push(outputLines[i]);
+                    }
+                }
+                output = filteredOutput.join('\n').trim();
+            }
+            
+            parts.push(output);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
             parts.push(`${label}\n${notFound}`);
