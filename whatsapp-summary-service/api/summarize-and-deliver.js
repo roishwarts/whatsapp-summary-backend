@@ -205,7 +205,6 @@ function filterSummaryByComponents(summary, summaryComponents) {
     const rest = summary.slice(firstSentence.length).trim();
 
     const contentByKey = {};
-    const headerByKey = {}; // Track which headers were detected from LLM output
     const getSectionContent = (startLine, endLine, lines) => lines.slice(startLine, endLine).join('\n').trim();
 
     if (rest) {
@@ -225,32 +224,26 @@ function filterSummaryByComponents(summary, summaryComponents) {
         matches.sort((a, b) => a.index - b.index);
 
         for (let i = 0; i < matches.length; i++) {
-            const start = matches[i].index + 1;
+            const start = matches[i].index;
             const end = i + 1 < matches.length ? matches[i + 1].index : lines.length;
             const key = matches[i].key;
-            if (set.has(key)) {
-                let content = getSectionContent(start, end, lines);
-                if (content && !contentByKey[key]) {
-                    const header = lines[matches[i].index].trim();
-                    const label = SECTION_LABELS_HE[key] || key;
-                    // Remove ALL occurrences of duplicate headers from content (LLM already included header once)
-                    const contentLines = content.split('\n');
-                    const filteredLines = [];
-                    for (const line of contentLines) {
-                        const lineTrimmed = line.trim();
-                        // Skip lines that match either the detected header or the standardized label (duplicates)
-                        if (lineTrimmed !== header && lineTrimmed !== label) {
-                            filteredLines.push(line);
-                        }
+            if (set.has(key) && !contentByKey[key]) {
+                // Take the full section from LLM (including header line) - do NOT add our own title
+                const sectionLines = lines.slice(start, end);
+                const header = sectionLines[0]?.trim();
+                const label = SECTION_LABELS_HE[key] || key;
+                // Remove duplicate header lines only (so "תאריכים\nתאריכים\nלא נמצאו" -> "תאריכים\nלא נמצאו")
+                const outLines = [];
+                for (const line of sectionLines) {
+                    const t = line.trim();
+                    if (t === header || t === label) {
+                        if (outLines.length === 0) outLines.push(line);
+                    } else {
+                        outLines.push(line);
                     }
-                    content = filteredLines.join('\n').trim();
-                    // Store ONLY cleaned content (NO header - LLM already included it, we'll use the detected one)
-                    if (content) {
-                        contentByKey[key] = content;
-                    }
-                    // Store the detected header from LLM (we'll use this when outputting)
-                    headerByKey[key] = header;
                 }
+                const sectionText = outLines.join('\n').trim();
+                if (sectionText) contentByKey[key] = sectionText;
             }
         }
 
@@ -274,15 +267,10 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            // Use the LLM's header (we detected it) + cleaned content - DO NOT add our own title
-            if (headerByKey[key]) {
-                parts.push(`${headerByKey[key]}\n${contentByKey[key]}`);
-            } else {
-                // Fallback: if somehow no header detected, use standardized label
-                parts.push(`${label}\n${contentByKey[key]}`);
-            }
+            // Output only what the LLM sent (we only removed duplicate header lines) - do NOT add any title
+            parts.push(contentByKey[key]);
         } else {
-            // No content found - we need to add title + "not found" message
+            // No section found in LLM output - show "not found" with label (only place we add a title)
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
             parts.push(`${label}\n${notFound}`);
         }

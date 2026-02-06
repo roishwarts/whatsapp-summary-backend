@@ -1412,7 +1412,7 @@ async function handleConversationStep(text, sender) {
                 callSendNotification(sender, 'מה התוכן של ההודעה?').catch(() => {});
             } else {
                 state.step = 2;
-                callSendNotification(sender, 'מעולה, באיזה תאריך ושעה תרצה לשלוח את ההודעה?').catch(() => {});
+                callSendNotification(sender, 'באיזה תאריך ושעה לשלוח את ההודעה?').catch(() => {});
             }
             return;
         }
