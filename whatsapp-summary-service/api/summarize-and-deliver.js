@@ -232,18 +232,17 @@ function filterSummaryByComponents(summary, summaryComponents) {
                 if (content && !contentByKey[key]) {
                     const header = lines[matches[i].index].trim();
                     const label = SECTION_LABELS_HE[key] || key;
-                    // Remove ALL occurrences of BOTH the detected header AND the standardized label
+                    // Remove ALL occurrences of BOTH the detected header AND the standardized label from entire content
                     const contentLines = content.split('\n');
-                    let firstNonHeaderIndex = 0;
-                    for (let j = 0; j < contentLines.length; j++) {
-                        const lineTrimmed = contentLines[j].trim();
-                        if (lineTrimmed === header || lineTrimmed === label) {
-                            firstNonHeaderIndex = j + 1;
-                        } else {
-                            break;
+                    const filteredLines = [];
+                    for (const line of contentLines) {
+                        const lineTrimmed = line.trim();
+                        // Skip lines that match either the detected header or the standardized label
+                        if (lineTrimmed !== header && lineTrimmed !== label) {
+                            filteredLines.push(line);
                         }
                     }
-                    content = contentLines.slice(firstNonHeaderIndex).join('\n').trim();
+                    content = filteredLines.join('\n').trim();
                     // Store ONLY content (no header)
                     if (content) {
                         contentByKey[key] = content;
@@ -254,7 +253,17 @@ function filterSummaryByComponents(summary, summaryComponents) {
 
         const beforeFirst = matches.length > 0 ? getSectionContent(0, matches[0].index, lines) : getSectionContent(0, lines.length, lines);
         if (set.has('tldr') && beforeFirst.trim() && !contentByKey.tldr) {
-            contentByKey.tldr = beforeFirst.trim();
+            // Remove any headers from beforeFirst content as well
+            const tldrLabel = SECTION_LABELS_HE.tldr || 'tldr';
+            const beforeFirstLines = beforeFirst.split('\n');
+            const filteredBeforeFirst = [];
+            for (const line of beforeFirstLines) {
+                const lineTrimmed = line.trim();
+                if (lineTrimmed !== tldrLabel) {
+                    filteredBeforeFirst.push(line);
+                }
+            }
+            contentByKey.tldr = filteredBeforeFirst.join('\n').trim();
         }
     }
 
