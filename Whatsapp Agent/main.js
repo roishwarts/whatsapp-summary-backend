@@ -49,6 +49,18 @@ const _conversationStateBySender = {};
 let _chatListResolve = null;
 
 // --- 2.1. Real-time Command Handling (Pusher Listener) ---
+/** True if longStr contains shortStr at a word boundary (start, end, or after space/comma). Avoids "טל" matching "מיטל". */
+function containsAtWordBoundary(longStr, shortStr) {
+    if (!longStr || !shortStr) return false;
+    const idx = longStr.indexOf(shortStr);
+    if (idx === -1) return false;
+    const atStart = idx === 0;
+    const atEnd = idx + shortStr.length === longStr.length;
+    const afterBoundary = idx > 0 && /[\s,]/.test(longStr[idx - 1]);
+    const beforeBoundary = idx + shortStr.length >= longStr.length || /[\s,]/.test(longStr[idx + shortStr.length]);
+    return (atStart || afterBoundary) && (atEnd || beforeBoundary);
+}
+
 function resolveChatName(partialName, list) {
     if (!partialName) return partialName;
     if (!list || !Array.isArray(list) || list.length === 0) return partialName;
@@ -57,7 +69,10 @@ function resolveChatName(partialName, list) {
     if (exact) return exact;
     const startsWith = list.find((name) => (name || '').trim().indexOf(p) === 0);
     if (startsWith) return startsWith.trim();
-    const includes = list.find((name) => (name || '').includes(p));
+    const includes = list.find((name) => {
+        const t = (name || '').trim();
+        return t.includes(p) && containsAtWordBoundary(t, p);
+    });
     if (includes) return includes.trim();
     return partialName;
 }
@@ -164,15 +179,24 @@ async function handleIncomingWhatsAppCommand(message, sender) {
         return;
     }
 
-    // Schedule flow: "שלח הודעה ב21.2 ב10:20" or "תזמן הודעה מחר 21:00" etc. (intent + optional date/time)
+    // Schedule flow: "שלח הודעה ב21.2 ב10:20", "תזמן הודעה למחר ב10", "תזמן הודעה לדור מחר ב16:30" etc.
     const scheduleFlowIntent = parseScheduleFlowIntent(text);
     if (scheduleFlowIntent && scheduleFlowIntent.startFlow) {
-        console.log('[Pusher Command] Detected schedule flow intent (with optional date/time)');
+        console.log('[Pusher Command] Detected schedule flow intent (with optional date/time/recipient)');
         const data = {};
         if (scheduleFlowIntent.date) data.date = scheduleFlowIntent.date;
         if (scheduleFlowIntent.time) data.time = scheduleFlowIntent.time;
-        _conversationStateBySender[sender] = { flow: 'schedule_new', step: 1, data };
-        callSendNotification(sender, 'למי לשלוח את ההודעה?').catch(() => {});
+        if (scheduleFlowIntent.chatName) {
+            const list = await getChatListForResolve();
+            data.chatName = resolveChatName(scheduleFlowIntent.chatName, list) || scheduleFlowIntent.chatName;
+        }
+        if (data.chatName && data.date && data.time) {
+            _conversationStateBySender[sender] = { flow: 'schedule_new', step: 3, data };
+            callSendNotification(sender, 'מה התוכן של ההודעה?').catch(() => {});
+        } else {
+            _conversationStateBySender[sender] = { flow: 'schedule_new', step: 1, data };
+            callSendNotification(sender, 'למי לשלוח את ההודעה?').catch(() => {});
+        }
         return;
     }
 
@@ -643,6 +667,12 @@ function extractChatNameFromScheduleText(text) {
         return normalizeGroupName(toGroupMatch[1].trim());
     }
 
+    const dateWords = ['מחר', 'היום', 'מחרתיים', 'tomorrow', 'today'];
+    function isDateWord(name) {
+        const n = (name || '').trim();
+        return dateWords.includes(n) || n.length <= 1;
+    }
+
     // Hebrew schedule-style: "שלח הודעה ל<name> ..." / "תזמן ... ל<name> ..."
     const patterns = [
         /שלח\s+הודעה\s+ל(.+?)(?:\s+מחר|\s+היום|\s+מחרתיים|\s+בשעה|\s+ב\s*\d|\s*,|$)/,
@@ -651,14 +681,14 @@ function extractChatNameFromScheduleText(text) {
 
     for (const pattern of patterns) {
         const m = normalized.match(pattern);
-        if (m && m[1]) {
+        if (m && m[1] && !isDateWord(m[1])) {
             return normalizeGroupName(m[1]);
         }
     }
 
     // Generic Hebrew "ל<name>" near time/date words (fallback)
     const genericMatch = normalized.match(/ל([^,]+?)(?:\s+מחר|\s+היום|\s+מחרתיים|\s+בשעה|\s+ב\s*\d|\s*,|$)/);
-    if (genericMatch && genericMatch[1]) {
+    if (genericMatch && genericMatch[1] && !isDateWord(genericMatch[1])) {
         return normalizeGroupName(genericMatch[1]);
     }
 
@@ -727,8 +757,8 @@ function splitMessageContentFromText(text) {
 }
 
 /**
- * Detect "schedule/send message" intent with optional date/time (e.g. "שלח הודעה ב21.2 ב10:20").
- * Returns { startFlow: true, date?, time? } when user wants to schedule but not a complete one-shot; otherwise null.
+ * Detect "schedule/send message" intent with optional date/time and optional recipient.
+ * Returns { startFlow: true, date?, time?, chatName? } when user wants to schedule but not a complete one-shot; otherwise null.
  */
 function parseScheduleFlowIntent(text) {
     if (!text) return null;
@@ -743,10 +773,12 @@ function parseScheduleFlowIntent(text) {
     if (oneShot) return null;
 
     const dateTime = parseDateAndTimeOnly(t);
+    const chatName = extractChatNameFromScheduleText(t) || extractChatNameFromText(t);
     return {
         startFlow: true,
         date: dateTime ? dateTime.date : undefined,
-        time: dateTime ? dateTime.time : undefined
+        time: dateTime ? dateTime.time : undefined,
+        chatName: chatName && chatName.trim() ? chatName.trim() : undefined
     };
 }
 
@@ -915,6 +947,12 @@ function parseScheduleCommandFromText(text) {
 
     if (!messageText) {
         messageText = `Scheduled message from WhatsApp command for "${chatName}"`;
+    }
+
+    const defaultPlaceholder = `Scheduled message from WhatsApp command for "${chatName}"`;
+    const looksLikeResidue = /^הודעה\s+ב?\d|^ב\d|^ב\s*\d{1,2}:?\d{0,2}$/i.test(messageText.trim()) || messageText.trim().length < 15;
+    if (messageText === defaultPlaceholder || looksLikeResidue) {
+        return null;
     }
 
     return {

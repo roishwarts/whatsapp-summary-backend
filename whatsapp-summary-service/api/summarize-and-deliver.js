@@ -228,10 +228,15 @@ function filterSummaryByComponents(summary, summaryComponents) {
             const end = i + 1 < matches.length ? matches[i + 1].index : lines.length;
             const key = matches[i].key;
             if (set.has(key)) {
-                const content = getSectionContent(start, end, lines);
+                let content = getSectionContent(start, end, lines);
                 if (content && !contentByKey[key]) {
                     const header = lines[matches[i].index].trim();
-                    contentByKey[key] = `${header}\n${content}`;
+                    if (content.startsWith(header)) {
+                        content = content.slice(header.length).replace(/^\s*\n?/, '').trim();
+                    }
+                    if (content) {
+                        contentByKey[key] = `${header}\n${content}`;
+                    }
                 }
             }
         }
@@ -246,7 +251,12 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            parts.push(contentByKey[key]);
+            let part = contentByKey[key];
+            const partLines = part.split('\n');
+            if (partLines.length >= 2 && partLines[0].trim() === partLines[1].trim()) {
+                part = partLines[0] + '\n' + partLines.slice(2).join('\n').trim();
+            }
+            parts.push(part);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
             parts.push(`${label}\n${notFound}`);

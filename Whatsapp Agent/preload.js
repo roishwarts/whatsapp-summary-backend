@@ -665,6 +665,18 @@ async function sendMessage(messageText) {
     }
 }
 
+// True if longStr contains shortStr at a word boundary (start, end, or after space/comma). Avoids "טל" matching "מיטל".
+function containsAtWordBoundary(longStr, shortStr) {
+    if (!longStr || !shortStr) return false;
+    const idx = longStr.indexOf(shortStr);
+    if (idx === -1) return false;
+    const atStart = idx === 0;
+    const atEnd = idx + shortStr.length === longStr.length;
+    const afterBoundary = idx > 0 && /[\s,]/.test(longStr[idx - 1]);
+    const beforeBoundary = idx + shortStr.length >= longStr.length || /[\s,]/.test(longStr[idx + shortStr.length]);
+    return (atStart || afterBoundary) && (atEnd || beforeBoundary);
+}
+
 // Helper function to find a specific chat in the main chat list (not search results)
 function findChatInMainList(chatName, chatListContainer) {
     if (!chatListContainer) return null;
@@ -716,33 +728,32 @@ function findChatInMainList(chatName, chatListContainer) {
                     console.log(`Found chat "${chatName}" in main list (base exact match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (titleBase.includes(chatNameBase)) {
+                if (containsAtWordBoundary(titleBase, chatNameBase)) {
                     console.log(`Found chat "${chatName}" in main list (base contains match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (chatNameBase.includes(titleBase)) {
+                if (containsAtWordBoundary(chatNameBase, titleBase)) {
                     console.log(`Found chat "${chatName}" in main list (base reverse contains match: "${trimmedTitle}")`);
                     return row;
                 }
             }
             
-            // Try normalized contains match - both directions
-            if (normalizedTitle.includes(normalizedChatName)) {
+            // Try normalized contains match - both directions (word boundary to avoid "טל" matching "מיטל")
+            if (containsAtWordBoundary(normalizedTitle, normalizedChatName)) {
                 console.log(`Found chat "${chatName}" in main list (normalized contains match: "${trimmedTitle}")`);
                 return row;
             }
-            if (normalizedChatName.includes(normalizedTitle)) {
+            if (containsAtWordBoundary(normalizedChatName, normalizedTitle)) {
                 console.log(`Found chat "${chatName}" in main list (normalized reverse contains match: "${trimmedTitle}")`);
                 return row;
             }
             
-            // Try character-by-character comparison for Hebrew (handles encoding differences)
+            // Exact no-space match only (avoid substring: "טל" in "מיטלתומר")
             if (normalizedChatName.length > 0 && normalizedTitle.length > 0) {
-                // Remove all whitespace and compare
                 const chatNameNoSpace = normalizedChatName.replace(/\s/g, '');
                 const titleNoSpace = normalizedTitle.replace(/\s/g, '');
-                if (chatNameNoSpace === titleNoSpace || chatNameNoSpace.includes(titleNoSpace) || titleNoSpace.includes(chatNameNoSpace)) {
-                    console.log(`Found chat "${chatName}" in main list (no-space match: "${trimmedTitle}")`);
+                if (chatNameNoSpace === titleNoSpace) {
+                    console.log(`Found chat "${chatName}" in main list (no-space exact match: "${trimmedTitle}")`);
                     return row;
                 }
             }
@@ -811,22 +822,21 @@ function findChatInSearchResults(chatName) {
                     console.log(`Found chat "${chatName}" in search results (base exact match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (titleBase.includes(chatNameBase)) {
+                if (containsAtWordBoundary(titleBase, chatNameBase)) {
                     console.log(`Found chat "${chatName}" in search results (base contains match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (chatNameBase.includes(titleBase)) {
+                if (containsAtWordBoundary(chatNameBase, titleBase)) {
                     console.log(`Found chat "${chatName}" in search results (base reverse contains match: "${trimmedTitle}")`);
                     return row;
                 }
             }
             
-            // Try normalized contains match - both directions
-            if (normalizedTitle.includes(normalizedChatName)) {
+            if (containsAtWordBoundary(normalizedTitle, normalizedChatName)) {
                 console.log(`Found chat "${chatName}" in search results (normalized contains match: "${trimmedTitle}")`);
                 return row;
             }
-            if (normalizedChatName.includes(normalizedTitle)) {
+            if (containsAtWordBoundary(normalizedChatName, normalizedTitle)) {
                 console.log(`Found chat "${chatName}" in search results (normalized reverse contains match: "${trimmedTitle}")`);
                 return row;
             }
@@ -919,20 +929,18 @@ function verifyCorrectChatOpen(chatName) {
                     console.log(`Verified correct chat is open: ${chatName} (base exact match: "${rawTitle}")`);
                     return true;
                 }
-                if (titleBase.includes(chatNameBase) && chatNameBase.length >= Math.min(3, chatNameBase.length)) {
+                if (containsAtWordBoundary(titleBase, chatNameBase) && chatNameBase.length >= Math.min(3, chatNameBase.length)) {
                     console.log(`Verified correct chat is open: ${chatName} (base contains match: "${rawTitle}")`);
                     return true;
                 }
             }
             
-            // Try if chat name is contained in title - require substantial match
             if (normalizedChatName.length >= 3 && normalizedTitle.length >= 3) {
-                if (normalizedTitle.includes(normalizedChatName)) {
+                if (containsAtWordBoundary(normalizedTitle, normalizedChatName)) {
                     console.log(`Verified correct chat is open: ${chatName} (normalized contains match: "${rawTitle}")`);
                     return true;
                 }
-                // Only allow reverse contains if both are similar length (not one being substring of other)
-                if (normalizedChatName.includes(normalizedTitle) && Math.abs(normalizedChatName.length - normalizedTitle.length) <= 2) {
+                if (containsAtWordBoundary(normalizedChatName, normalizedTitle) && Math.abs(normalizedChatName.length - normalizedTitle.length) <= 2) {
                     console.log(`Verified correct chat is open: ${chatName} (normalized reverse match: "${rawTitle}")`);
                     return true;
                 }
@@ -940,15 +948,13 @@ function verifyCorrectChatOpen(chatName) {
         }
     }
     
-    // Log all found titles for debugging
     if (foundTitles.length > 0) {
         console.warn(`CTO DEBUG: Chat verification - Expected: "${chatName}" (normalized: "${normalizedChatName}", base: "${chatNameBase}")`);
         console.warn(`CTO DEBUG: Found titles: ${foundTitles.slice(0, 5).map(t => `"${t}"`).join(', ')}${foundTitles.length > 5 ? '...' : ''}`);
-        // Check if any title contains the chat name base
         for (const title of foundTitles) {
             const normalizedTitle = normalizeText(title);
             const titleBase = normalizedTitle.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
-            if (chatNameBase && titleBase && (titleBase.includes(chatNameBase) || chatNameBase.includes(titleBase))) {
+            if (chatNameBase && titleBase && (containsAtWordBoundary(titleBase, chatNameBase) || containsAtWordBoundary(chatNameBase, titleBase))) {
                 console.log(`CTO DEBUG: Found potential match: "${title}" (base: "${titleBase}") contains chat name base: "${chatNameBase}"`);
                 return true;
             }
@@ -1116,8 +1122,8 @@ async function clickChat(chatName) {
                             const normalizedName = normalizeText(name);
                             const normalizedChatName = normalizeText(chatName);
                             if (normalizedName === normalizedChatName || 
-                                normalizedName.includes(normalizedChatName) || 
-                                normalizedChatName.includes(normalizedName)) {
+                                containsAtWordBoundary(normalizedName, normalizedChatName) || 
+                                containsAtWordBoundary(normalizedChatName, normalizedName)) {
                                 chatRow = newRow;
                                 console.log(`Found chat in newly loaded rows: "${name}"`);
                                 break;
