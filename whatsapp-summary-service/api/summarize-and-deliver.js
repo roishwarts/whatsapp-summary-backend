@@ -231,19 +231,22 @@ function filterSummaryByComponents(summary, summaryComponents) {
                 let content = getSectionContent(start, end, lines);
                 if (content && !contentByKey[key]) {
                     const header = lines[matches[i].index].trim();
-                    // Remove ALL occurrences of the header at the start of content (consecutive duplicates)
+                    const label = SECTION_LABELS_HE[key] || key;
+                    // Remove ALL occurrences of BOTH the detected header AND the standardized label
                     const contentLines = content.split('\n');
                     let firstNonHeaderIndex = 0;
                     for (let j = 0; j < contentLines.length; j++) {
-                        if (contentLines[j].trim() === header) {
+                        const lineTrimmed = contentLines[j].trim();
+                        if (lineTrimmed === header || lineTrimmed === label) {
                             firstNonHeaderIndex = j + 1;
                         } else {
                             break;
                         }
                     }
                     content = contentLines.slice(firstNonHeaderIndex).join('\n').trim();
+                    // Store ONLY content (no header)
                     if (content) {
-                        contentByKey[key] = `${header}\n${content}`;
+                        contentByKey[key] = content;
                     }
                 }
             }
@@ -259,20 +262,8 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            let part = contentByKey[key];
-            const partLines = part.split('\n');
-            // The first line is the header we added, remove all consecutive duplicates after it
-            const header = partLines[0].trim();
-            let firstNonHeaderIndex = 1;
-            for (let i = 1; i < partLines.length; i++) {
-                if (partLines[i].trim() === header) {
-                    firstNonHeaderIndex = i + 1;
-                } else {
-                    break;
-                }
-            }
-            part = [header, ...partLines.slice(firstNonHeaderIndex)].join('\n').trim();
-            parts.push(part);
+            // Always prepend the standardized label (don't parse stored value)
+            parts.push(`${label}\n${contentByKey[key]}`);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
             parts.push(`${label}\n${notFound}`);
