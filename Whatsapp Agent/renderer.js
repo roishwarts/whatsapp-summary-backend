@@ -372,7 +372,7 @@ function renderScheduling(chatsToSchedule) {
         <p>Set the time for the daily brief to be generated for each chat.</p>
         <div id="schedule-container"></div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="back-button" class="secondary-button" style="flex: 1;">← Back to Chat Selection</button>
+            <button id="back-button" class="secondary-button" style="flex: 1;">← Back to Dashboard</button>
             <button id="save-schedules-button" class="primary-button" style="flex: 1;">Save & Start Automation</button>
         </div>
     `;
@@ -424,7 +424,7 @@ function renderScheduling(chatsToSchedule) {
     });
 
     document.getElementById('back-button').addEventListener('click', () => {
-        renderChatSelection(availableChatNames);
+        window.uiApi.sendData('ui:request-scheduled-messages');
     });
 
     // Add back to dashboard button handler
@@ -566,7 +566,7 @@ function renderScheduledMessageChatSelection(chatList) {
         
         document.getElementById('retry-chat-list').addEventListener('click', () => {
             renderChatListLoadingState();
-            window.uiApi.sendData('ui:request-chat-list-for-message'); 
+            window.uiApi.sendData('ui:refresh-chat-list-for-message');
         });
 
         document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
@@ -579,7 +579,10 @@ function renderScheduledMessageChatSelection(chatList) {
     mainSetupDiv.innerHTML = `
         <div class="setup-header">
             <h2>Choose to who you want to send the message</h2>
-            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+            <div style="display: flex; gap: 10px;">
+                <button id="refresh-chat-list-message-btn" class="secondary-button">Refresh chats</button>
+                <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+            </div>
         </div>
         <p>Click on the chat you want to send a scheduled message to.</p>
         <div style="margin: 15px 0;">
@@ -645,6 +648,11 @@ function renderScheduledMessageChatSelection(chatList) {
         } else {
             alert('Please select a chat to send the message to.');
         }
+    });
+
+    document.getElementById('refresh-chat-list-message-btn').addEventListener('click', () => {
+        renderChatListLoadingState();
+        window.uiApi.sendData('ui:refresh-chat-list-for-message');
     });
     
     document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
@@ -713,7 +721,7 @@ function renderSummaryChatSelection(chatList) {
         `;
         document.getElementById('retry-summary-chat-list').addEventListener('click', () => {
             renderChatListLoadingState();
-            window.uiApi.sendData('ui:request-chat-list-for-summary');
+            window.uiApi.sendData('ui:refresh-chat-list-for-summary');
         });
         document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
             window.uiApi.sendData('ui:request-scheduled-messages');
@@ -723,7 +731,10 @@ function renderSummaryChatSelection(chatList) {
     mainSetupDiv.innerHTML = `
         <div class="setup-header">
             <h2>Choose a chat to summarize</h2>
-            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+            <div style="display: flex; gap: 10px;">
+                <button id="refresh-chat-list-summary-btn" class="secondary-button">Refresh chats</button>
+                <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+            </div>
         </div>
         <p>Click on the chat you want to summarize.</p>
         <div style="margin: 15px 0;">
@@ -767,6 +778,10 @@ function renderSummaryChatSelection(chatList) {
     nextButton.addEventListener('click', () => {
         if (selectedChatName) renderSummaryCategorySelection(selectedChatName);
         else alert('Please select a chat.');
+    });
+    document.getElementById('refresh-chat-list-summary-btn').addEventListener('click', () => {
+        renderChatListLoadingState();
+        window.uiApi.sendData('ui:refresh-chat-list-for-summary');
     });
     document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
         window.uiApi.sendData('ui:request-scheduled-messages');
@@ -1048,12 +1063,10 @@ function renderDashboard(currentSchedules) {
 
     // Add dashboard control listeners
     document.getElementById('add-scheduled-message-button').addEventListener('click', () => {
-        renderChatListLoadingState();
-        window.uiApi.sendData('ui:request-chat-list-for-message'); 
+        window.uiApi.sendData('ui:request-chat-list-for-message');
     });
 
     document.getElementById('summarize-chat-button').addEventListener('click', () => {
-        renderChatListLoadingState();
         window.uiApi.sendData('ui:request-chat-list-for-summary');
     });
     
@@ -1162,28 +1175,14 @@ function initializeIPCListeners() {
         renderDashboard(existingScheduledChats);
     });
 
-    // 6. Receive the list of chats from the WhatsApp window (Triggers selection screen)
-    window.uiApi.receiveCommand('main:render-chat-list', (chatList) => {
-        // Complete the progress bar animation
+    // 6. main:render-chat-list is deprecated (was "Select Chats for Daily Brief"). Do not navigate to that screen.
+    window.uiApi.receiveCommand('main:render-chat-list', () => {
         if (window.chatListLoadingInterval) {
             clearInterval(window.chatListLoadingInterval);
             window.chatListLoadingInterval = null;
         }
-        const progressBar = document.getElementById('chat-list-progress-bar');
-        const loadingText = document.getElementById('chat-list-loading-text');
-        if (progressBar) {
-            progressBar.style.width = '100%';
-        }
-        if (loadingText) {
-            loadingText.textContent = 'Complete!';
-        }
-        
-        // Small delay to show completion, then render chat selection
-        setTimeout(() => {
-            availableChatNames = chatList;
-            window.currentFlow = null; // Reset flow
-            renderChatSelection(availableChatNames);
-        }, 300);
+        // Stay on current screen; optionally ensure dashboard is shown
+        window.uiApi.sendData('ui:request-scheduled-messages');
     });
 
     // 6.5. Receive the list of chats for scheduled message flow
@@ -1202,10 +1201,10 @@ function initializeIPCListeners() {
             loadingText.textContent = 'Complete!';
         }
         
-        // Small delay to show completion, then render scheduled message chat selection
+        // Render immediately (cached list) or after refresh (loading state was shown)
         setTimeout(() => {
             renderScheduledMessageChatSelection(chatList);
-        }, 300);
+        }, 0);
     });
 
     // 6.6 Receive chat list for summary flow
@@ -1220,7 +1219,7 @@ function initializeIPCListeners() {
         if (loadingText) loadingText.textContent = 'Complete!';
         setTimeout(() => {
             renderSummaryChatSelection(chatList);
-        }, 300);
+        }, 0);
     });
 
     // 6.7 Receive summary result (from UI-triggered or on-demand flow)

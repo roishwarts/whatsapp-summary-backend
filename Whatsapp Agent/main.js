@@ -33,7 +33,8 @@ const store = new Store({
             emailPass: null,
         },
         scheduledChats: [],
-        scheduledMessages: []
+        scheduledMessages: [],
+        cachedChatList: []
     }
 });
 
@@ -2626,25 +2627,24 @@ ipcMain.on('ui:edit-scheduled-message', (event, { index, message }) => {
 });
 
 ipcMain.on('ui:request-chat-list-for-message', (event) => {
+    // Send cached list immediately so chat selection appears instantly
+    const cached = store.get('cachedChatList') || [];
+    if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', cached);
     if (!isWhatsAppWindowAvailable()) {
         console.error('[IPC] WhatsApp window not available for chat list request');
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', []);
         return;
     }
-    
-    // Mark that the next chat list response should be for scheduled messages
     if (whatsappWindow && whatsappWindow.webContents) {
         whatsappWindow.webContents._isForScheduledMessage = true;
         whatsappWindow.webContents._isForSummary = false;
+        whatsappWindow.webContents._isForCache = false;
     }
-    
     try {
-        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+        if (whatsappWindow && whatsappWindow.webContents) {
             whatsappWindow.webContents.send('app:request-chat-list');
         }
     } catch (error) {
         console.error('[IPC] Error requesting chat list for message:', error);
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', []);
         if (whatsappWindow && whatsappWindow.webContents) {
             whatsappWindow.webContents._isForScheduledMessage = false;
         }
@@ -2652,23 +2652,64 @@ ipcMain.on('ui:request-chat-list-for-message', (event) => {
 });
 
 ipcMain.on('ui:request-chat-list-for-summary', (event) => {
+    const cached = store.get('cachedChatList') || [];
+    if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', cached);
     if (!isWhatsAppWindowAvailable()) {
         console.error('[IPC] WhatsApp window not available for chat list request');
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', []);
         return;
     }
-    
     if (whatsappWindow && whatsappWindow.webContents) {
         whatsappWindow.webContents._isForScheduledMessage = false;
         whatsappWindow.webContents._isForSummary = true;
+        whatsappWindow.webContents._isForCache = false;
     }
-    
     try {
-        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+        if (whatsappWindow && whatsappWindow.webContents) {
             whatsappWindow.webContents.send('app:request-chat-list');
         }
     } catch (error) {
         console.error('[IPC] Error requesting chat list for summary:', error);
+        if (whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents._isForSummary = false;
+        }
+    }
+});
+
+ipcMain.on('ui:refresh-chat-list-for-message', (event) => {
+    if (!isWhatsAppWindowAvailable()) {
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', []);
+        return;
+    }
+    if (whatsappWindow && whatsappWindow.webContents) {
+        whatsappWindow.webContents._isForScheduledMessage = true;
+        whatsappWindow.webContents._isForSummary = false;
+        whatsappWindow.webContents._isForCache = false;
+    }
+    try {
+        whatsappWindow.webContents.send('app:request-chat-list');
+    } catch (error) {
+        console.error('[IPC] Error refreshing chat list for message:', error);
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', []);
+        if (whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents._isForScheduledMessage = false;
+        }
+    }
+});
+
+ipcMain.on('ui:refresh-chat-list-for-summary', (event) => {
+    if (!isWhatsAppWindowAvailable()) {
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', []);
+        return;
+    }
+    if (whatsappWindow && whatsappWindow.webContents) {
+        whatsappWindow.webContents._isForScheduledMessage = false;
+        whatsappWindow.webContents._isForSummary = true;
+        whatsappWindow.webContents._isForCache = false;
+    }
+    try {
+        whatsappWindow.webContents.send('app:request-chat-list');
+    } catch (error) {
+        console.error('[IPC] Error refreshing chat list for summary:', error);
         if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', []);
         if (whatsappWindow && whatsappWindow.webContents) {
             whatsappWindow.webContents._isForSummary = false;
@@ -2771,25 +2812,39 @@ ipcMain.on('whatsapp:ready', (event) => {
             }
         }
     } else {
-        // Already set up - don't automatically request chat list
-        // Chat list will be requested only when user clicks the button
+        // Preload chat list into cache when WhatsApp connects (background)
+        if (whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents._isForScheduledMessage = false;
+            whatsappWindow.webContents._isForSummary = false;
+            whatsappWindow.webContents._isForCache = true;
+            try {
+                whatsappWindow.webContents.send('app:request-chat-list');
+            } catch (e) {
+                if (whatsappWindow.webContents) whatsappWindow.webContents._isForCache = false;
+            }
+        }
     }
 });
 
 ipcMain.on('whatsapp:response-chat-list', (event, list) => {
-    // Only UI requests use this channel; resolve uses whatsapp:chat-list-for-resolve
+    const isForCache = event.sender._isForCache;
     const isForScheduledMessage = event.sender._isForScheduledMessage;
     const isForSummary = event.sender._isForSummary;
-    if (isForScheduledMessage) {
-        event.sender._isForScheduledMessage = false;
-        event.sender._isForSummary = false;
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', list);
-    } else if (isForSummary) {
-        event.sender._isForSummary = false;
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', list);
-    } else {
-        if (uiWindow) uiWindow.webContents.send('main:render-chat-list', list);
+    event.sender._isForCache = false;
+    event.sender._isForScheduledMessage = false;
+    event.sender._isForSummary = false;
+    if (Array.isArray(list) && list.length > 0) {
+        store.set('cachedChatList', list);
     }
+    if (isForCache) {
+        return;
+    }
+    if (isForScheduledMessage) {
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', list || []);
+    } else if (isForSummary) {
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', list || []);
+    }
+    // else: no flag set (e.g. race with cache request) — only cache updated above; do not send main:render-chat-list (deprecated Daily Brief screen)
 });
 
 ipcMain.on('whatsapp:chat-list-for-resolve', (event, list) => {
