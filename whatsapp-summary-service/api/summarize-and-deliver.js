@@ -231,13 +231,17 @@ function filterSummaryByComponents(summary, summaryComponents) {
                 let content = getSectionContent(start, end, lines);
                 if (content && !contentByKey[key]) {
                     const header = lines[matches[i].index].trim();
-                    // Remove header if it appears at the start of content (with or without newline)
+                    // Remove ALL occurrences of the header at the start of content (consecutive duplicates)
                     const contentLines = content.split('\n');
-                    if (contentLines.length > 0 && contentLines[0].trim() === header) {
-                        content = contentLines.slice(1).join('\n').trim();
-                    } else if (content.startsWith(header)) {
-                        content = content.slice(header.length).replace(/^\s*\n?/, '').trim();
+                    let firstNonHeaderIndex = 0;
+                    for (let j = 0; j < contentLines.length; j++) {
+                        if (contentLines[j].trim() === header) {
+                            firstNonHeaderIndex = j + 1;
+                        } else {
+                            break;
+                        }
                     }
+                    content = contentLines.slice(firstNonHeaderIndex).join('\n').trim();
                     if (content) {
                         contentByKey[key] = `${header}\n${content}`;
                     }
@@ -257,21 +261,17 @@ function filterSummaryByComponents(summary, summaryComponents) {
         if (contentByKey[key]) {
             let part = contentByKey[key];
             const partLines = part.split('\n');
-            // Remove all consecutive duplicate headers (check all lines, not just first two)
+            // The first line is the header we added, remove all consecutive duplicates after it
             const header = partLines[0].trim();
-            const filteredLines = [partLines[0]];
+            let firstNonHeaderIndex = 1;
             for (let i = 1; i < partLines.length; i++) {
-                if (partLines[i].trim() !== header) {
-                    filteredLines.push(...partLines.slice(i));
+                if (partLines[i].trim() === header) {
+                    firstNonHeaderIndex = i + 1;
+                } else {
                     break;
                 }
             }
-            part = filteredLines.join('\n').trim();
-            // Final check: if the result still starts with duplicate header, remove it
-            const finalLines = part.split('\n');
-            if (finalLines.length >= 2 && finalLines[0].trim() === header && finalLines[1].trim() === header) {
-                part = [header, ...finalLines.slice(2)].join('\n').trim();
-            }
+            part = [header, ...partLines.slice(firstNonHeaderIndex)].join('\n').trim();
             parts.push(part);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
