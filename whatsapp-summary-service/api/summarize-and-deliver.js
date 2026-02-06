@@ -205,6 +205,7 @@ function filterSummaryByComponents(summary, summaryComponents) {
     const rest = summary.slice(firstSentence.length).trim();
 
     const contentByKey = {};
+    const headerByKey = {}; // Track which headers were detected from LLM output
     const getSectionContent = (startLine, endLine, lines) => lines.slice(startLine, endLine).join('\n').trim();
 
     if (rest) {
@@ -232,6 +233,8 @@ function filterSummaryByComponents(summary, summaryComponents) {
                 if (content && !contentByKey[key]) {
                     const header = lines[matches[i].index].trim();
                     const label = SECTION_LABELS_HE[key] || key;
+                    // Store the detected header (LLM already included it)
+                    headerByKey[key] = label; // Use standardized label, but mark that header exists
                     // Remove ALL occurrences of BOTH the detected header AND the standardized label from entire content
                     const contentLines = content.split('\n');
                     const filteredLines = [];
@@ -271,19 +274,14 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            // Final cleanup: remove any remaining headers from stored content
+            // Content was extracted after removing headers, so always prepend the standardized label
+            // But first, ensure no header remains in the content (final safety check)
             let cleanContent = contentByKey[key];
-            const contentLines = cleanContent.split('\n');
-            const filteredLines = [];
-            for (const line of contentLines) {
-                const lineTrimmed = line.trim();
-                // Skip lines that match the label (header)
-                if (lineTrimmed !== label) {
-                    filteredLines.push(line);
-                }
+            const firstLine = cleanContent.split('\n')[0]?.trim();
+            if (firstLine === label) {
+                // Header still present - remove it
+                cleanContent = cleanContent.split('\n').slice(1).join('\n').trim();
             }
-            cleanContent = filteredLines.join('\n').trim();
-            // Always prepend the standardized label
             parts.push(`${label}\n${cleanContent}`);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
