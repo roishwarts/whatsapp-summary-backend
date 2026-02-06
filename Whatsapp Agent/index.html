@@ -143,11 +143,22 @@
         #dashboard-controls {
             display: flex;
             gap: 10px;
+            margin-top: 0;
             margin-bottom: 20px;
+        }
+        
+        #scheduled-messages-container {
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+        
+        #scheduled-messages-container h3 {
+            margin-top: 0;
         }
         
         #dashboard-controls button {
             flex: 1;
+            margin-top: 0;
         }
 
         #schedules-ul {
@@ -299,14 +310,66 @@
         .dashboard-header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: baseline;
             margin-bottom: 20px;
         }
         
-        .dashboard-header-right {
-            display: flex;
-            align-items: center;
-            gap: 10px;
+        .dashboard-title-block {
+            display: grid;
+            grid-template-columns: 1fr;
+            width: max-content;
+            /* 13px gap so total space = 7px (h2 padding+border) + 13px = 20px, matching space below Show/Hide */
+            gap: 13px;
+        }
+        
+        .dashboard-title {
+            white-space: nowrap;
+            margin: 0;
+        }
+        
+        .dashboard-whatsapp-row {
+            min-width: 0;
+        }
+        
+        .toggle-whatsapp-button {
+            padding: 6px 12px;
+            font-size: 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+            text-align: left;
+        }
+        
+        .toggle-whatsapp-button.status-connected {
+            background-color: #c8e6c9;
+            color: #1b5e20;
+        }
+        
+        .toggle-whatsapp-button.status-connected:hover {
+            background-color: #a5d6a7;
+        }
+        
+        .toggle-whatsapp-button.status-connecting {
+            background-color: #ffe0b2;
+            color: #e65100;
+        }
+        
+        .toggle-whatsapp-button.status-connecting:hover {
+            background-color: #ffcc80;
+        }
+        
+        .toggle-whatsapp-button.status-disconnected {
+            background-color: #ffcdd2;
+            color: #b71c1c;
+        }
+        
+        .toggle-whatsapp-button.status-disconnected:hover {
+            background-color: #ef9a9a;
         }
         
         .settings-icon {
@@ -317,6 +380,7 @@
             padding: 5px;
             color: #128c7e;
             transition: transform 0.2s;
+            flex-shrink: 0;
         }
         
         .settings-icon:hover {

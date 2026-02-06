@@ -110,26 +110,12 @@ function renderOnboardingScreen() {
 // --- 3. UI Step - Delivery Configuration (UPDATED) ---
 // Helper function to update WhatsApp status indicator
 function updateWhatsAppStatus(status) {
-    const statusIndicator = document.getElementById('status-indicator');
-    const statusText = document.getElementById('status-text');
-    
-    if (!statusIndicator || !statusText) return;
-    
-    // Remove all classes
-    statusIndicator.className = 'status-dot';
-    
-    if (status === 'connecting') {
-        statusIndicator.innerHTML = '<span class="status-loader"></span>';
-        statusText.textContent = 'Connecting...';
-    } else if (status === 'connected') {
-        statusIndicator.className = 'status-dot connected';
-        statusIndicator.innerHTML = '';
-        statusText.textContent = 'Connected';
-    } else if (status === 'disconnected') {
-        statusIndicator.className = 'status-dot disconnected';
-        statusIndicator.innerHTML = '';
-        statusText.textContent = 'Disconnected';
-    }
+    const btn = document.getElementById('toggle-whatsapp-button');
+    if (!btn) return;
+    const label = status === 'connected' ? 'connected' : (status === 'disconnected' ? 'disconnected' : 'connecting...');
+    btn.textContent = `Show/Hide WhatsApp (${label})`;
+    btn.classList.remove('status-connected', 'status-connecting', 'status-disconnected');
+    btn.classList.add(status === 'connected' ? 'status-connected' : (status === 'disconnected' ? 'status-disconnected' : 'status-connecting'));
 }
 
 function renderDeliverySetup(isInitialSetup = true) {
@@ -821,34 +807,26 @@ function renderDashboard(currentSchedules) {
     // Get current WhatsApp connection status
     const whatsappStatus = window.whatsappConnectionStatus || 'connecting'; // 'connecting', 'connected', 'disconnected'
 
+    const statusLabel = whatsappStatus === 'connected' ? 'connected' : (whatsappStatus === 'disconnected' ? 'disconnected' : 'connecting...');
+    const statusClass = whatsappStatus === 'connected' ? 'status-connected' : (whatsappStatus === 'disconnected' ? 'status-disconnected' : 'status-connecting');
     mainSetupDiv.innerHTML = `
         <div class="dashboard-header">
-            <div>
-                <h2>WhatsApp Assistant</h2>
-            </div>
-            <div class="dashboard-header-right">
-                <div id="whatsapp-status-indicator" class="whatsapp-status">
-                    <span id="status-indicator"></span>
-                    <span id="status-text">Connecting...</span>
+            <div class="dashboard-title-block">
+                <h2 class="dashboard-title">WhatsApp Assistant</h2>
+                <div class="dashboard-whatsapp-row">
+                    <button id="toggle-whatsapp-button" class="toggle-whatsapp-button ${statusClass}" title="Show/Hide WhatsApp">Show/Hide WhatsApp (${statusLabel})</button>
                 </div>
-                <button id="toggle-whatsapp-button" class="header-button" title="Show/Hide WhatsApp">Show/Hide WhatsApp</button>
-                <button id="settings-icon-button" class="settings-icon" title="Settings">⚙️</button>
             </div>
+            <button id="settings-icon-button" class="settings-icon" title="Settings">⚙️</button>
         </div>
         
-        <div id="dashboard-controls" style="display: flex; gap: 10px; margin-bottom: 20px;">
-            <button id="add-chat-button" class="primary-button" style="flex: 1;">+ Add a scheduled daily brief</button>
+        <div id="dashboard-controls">
             <button id="add-scheduled-message-button" class="primary-button" style="flex: 1;">+ Add a scheduled message</button>
         </div>
 
-        <div id="scheduled-messages-container" style="margin-bottom: 30px;">
+        <div id="scheduled-messages-container">
             <h3>Scheduled Messages:</h3>
             <ul id="scheduled-messages-ul"></ul>
-        </div>
-
-        <div id="schedule-list-container">
-            <h3>Scheduled Daily Briefs:</h3>
-            <ul id="schedules-ul"></ul>
         </div>
     `;
     
@@ -882,38 +860,9 @@ function renderDashboard(currentSchedules) {
         });
     }
 
-    // Populate schedules list
-    const ul = document.getElementById('schedules-ul');
-    if (currentSchedules.length === 0) {
-        ul.innerHTML = '<li><p class="status-message">No chats are currently scheduled.</p></li>';
-    } else {
-        currentSchedules.forEach(chat => {
-            const li = document.createElement('li');
-            li.innerHTML = `
-                <div class="schedule-item-dashboard">
-                    <div style="flex: 1;">
-                        <strong>${chat.name}</strong> <span style="color: #666; font-weight: normal;">at ${chat.time}</span>
-                    </div>
-                    <div style="display: flex; gap: 5px;">
-                        <button class="edit-chat-button secondary-button" data-chat-name="${chat.name}" title="Edit schedule">✏️</button>
-                        <button class="delete-chat-button secondary-button" data-chat-name="${chat.name}" title="Remove from schedule">🗑️</button>
-                    </div>
-                </div>
-                <p class="small-text last-run">Last Run: ${chat.lastRunTime ? new Date(chat.lastRunTime).toLocaleString() : 'Never'}</p>
-            `;
-            ul.appendChild(li);
-        });
-    }
-    
-    
     // Add dashboard control listeners
     document.getElementById('toggle-whatsapp-button').addEventListener('click', () => {
         window.uiApi.sendData('ui:toggle-whatsapp-window');
-    });
-
-    document.getElementById('add-chat-button').addEventListener('click', () => {
-        renderChatListLoadingState();
-        window.uiApi.sendData('ui:request-chat-list'); 
     });
 
     document.getElementById('add-scheduled-message-button').addEventListener('click', () => {
@@ -923,27 +872,6 @@ function renderDashboard(currentSchedules) {
     
     document.getElementById('settings-icon-button').addEventListener('click', () => {
         renderDeliverySetup(false);
-    });
-
-    // FIX: Individual Edit button now goes to the dedicated single-chat editor
-    document.querySelectorAll('.edit-chat-button').forEach(button => {
-        button.addEventListener('click', (e) => {
-            const chatName = e.currentTarget.dataset.chatName;
-            editSingleChatSchedule(chatName); 
-        });
-    });
-    
-    // Add delete button handlers
-    document.querySelectorAll('.delete-chat-button').forEach(button => {
-        button.addEventListener('click', (e) => {
-            const chatName = e.currentTarget.dataset.chatName;
-            if (confirm(`Are you sure you want to remove "${chatName}" from the schedule?`)) {
-                // Remove the chat from schedules
-                const updatedSchedules = existingScheduledChats.filter(chat => chat.name !== chatName);
-                window.uiApi.sendData('ui:save-schedules', updatedSchedules);
-                renderDashboard(updatedSchedules);
-            }
-        });
     });
 
     // Add edit/delete handlers for scheduled messages
