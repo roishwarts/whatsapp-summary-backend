@@ -262,8 +262,20 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            // Always prepend the standardized label (don't parse stored value)
-            parts.push(`${label}\n${contentByKey[key]}`);
+            // Final cleanup: remove any remaining headers from stored content
+            let cleanContent = contentByKey[key];
+            const contentLines = cleanContent.split('\n');
+            const filteredLines = [];
+            for (const line of contentLines) {
+                const lineTrimmed = line.trim();
+                // Skip lines that match the label (header)
+                if (lineTrimmed !== label) {
+                    filteredLines.push(line);
+                }
+            }
+            cleanContent = filteredLines.join('\n').trim();
+            // Always prepend the standardized label
+            parts.push(`${label}\n${cleanContent}`);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
             parts.push(`${label}\n${notFound}`);

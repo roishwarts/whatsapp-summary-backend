@@ -2220,8 +2220,13 @@ ipcRenderer.on('app:request-chat-list', async () => {
 
 // Listener 1b: Main asks for chat list for name resolution only (background; same getChatList(), never sent to UI)
 ipcRenderer.on('app:request-chat-list-for-resolve', async () => {
+    console.log('[Preload] Received request for chat list for resolve');
     const list = await getChatList();
-    ipcRenderer.send('whatsapp:chat-list-for-resolve', list);
+    console.log('[Preload] Got chat list, length:', list ? list.length : 'null');
+    if (list && list.length > 0) {
+        console.log('[Preload] Sending chat list to main process, first 5:', list.slice(0, 5));
+    }
+    ipcRenderer.send('whatsapp:chat-list-for-resolve', list || []);
 });
 
 // Listener 2: Main asks to click a chat
