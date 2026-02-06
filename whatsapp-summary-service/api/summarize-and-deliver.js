@@ -244,13 +244,12 @@ function filterSummaryByComponents(summary, summaryComponents) {
                         }
                     }
                     content = filteredLines.join('\n').trim();
-                    // Store header + content (LLM already included header, we just clean duplicates)
+                    // Store ONLY cleaned content (NO header - LLM already included it, we'll use the detected one)
                     if (content) {
-                        contentByKey[key] = `${header}\n${content}`;
-                    } else {
-                        contentByKey[key] = header;
+                        contentByKey[key] = content;
                     }
-                    headerByKey[key] = true; // Mark that header exists
+                    // Store the detected header from LLM (we'll use this when outputting)
+                    headerByKey[key] = header;
                 }
             }
         }
@@ -275,33 +274,15 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            // Final cleanup: ensure header appears only once at the start
-            let output = contentByKey[key];
-            const outputLines = output.split('\n');
-            const label = SECTION_LABELS_HE[key] || key;
-            
-            // Find first occurrence of header
-            let firstHeaderIndex = -1;
-            for (let i = 0; i < outputLines.length; i++) {
-                if (outputLines[i].trim() === label) {
-                    firstHeaderIndex = i;
-                    break;
-                }
+            // Use the LLM's header (we detected it) + cleaned content - DO NOT add our own title
+            if (headerByKey[key]) {
+                parts.push(`${headerByKey[key]}\n${contentByKey[key]}`);
+            } else {
+                // Fallback: if somehow no header detected, use standardized label
+                parts.push(`${label}\n${contentByKey[key]}`);
             }
-            
-            if (firstHeaderIndex >= 0) {
-                // Header found - keep first occurrence, remove all others
-                const filteredOutput = [outputLines[firstHeaderIndex]]; // Keep first header
-                for (let i = firstHeaderIndex + 1; i < outputLines.length; i++) {
-                    if (outputLines[i].trim() !== label) {
-                        filteredOutput.push(outputLines[i]);
-                    }
-                }
-                output = filteredOutput.join('\n').trim();
-            }
-            
-            parts.push(output);
         } else {
+            // No content found - we need to add title + "not found" message
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
             parts.push(`${label}\n${notFound}`);
         }
