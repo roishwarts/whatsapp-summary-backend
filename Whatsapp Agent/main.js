@@ -2635,6 +2635,7 @@ ipcMain.on('ui:request-chat-list-for-message', (event) => {
     // Mark that the next chat list response should be for scheduled messages
     if (whatsappWindow && whatsappWindow.webContents) {
         whatsappWindow.webContents._isForScheduledMessage = true;
+        whatsappWindow.webContents._isForSummary = false;
     }
     
     try {
@@ -2648,6 +2649,40 @@ ipcMain.on('ui:request-chat-list-for-message', (event) => {
             whatsappWindow.webContents._isForScheduledMessage = false;
         }
     }
+});
+
+ipcMain.on('ui:request-chat-list-for-summary', (event) => {
+    if (!isWhatsAppWindowAvailable()) {
+        console.error('[IPC] WhatsApp window not available for chat list request');
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', []);
+        return;
+    }
+    
+    if (whatsappWindow && whatsappWindow.webContents) {
+        whatsappWindow.webContents._isForScheduledMessage = false;
+        whatsappWindow.webContents._isForSummary = true;
+    }
+    
+    try {
+        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents.send('app:request-chat-list');
+        }
+    } catch (error) {
+        console.error('[IPC] Error requesting chat list for summary:', error);
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', []);
+        if (whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents._isForSummary = false;
+        }
+    }
+});
+
+ipcMain.on('ui:request-summary-from-ui', (event, payload) => {
+    const { chatName, summaryComponents } = payload || {};
+    if (!chatName) {
+        if (uiWindow) uiWindow.webContents.send('main:render-summary', { chatName: '', summary: 'Error: No chat selected.', frequency: 'on-demand', time: null });
+        return;
+    }
+    triggerSummaryWithOptions(null, chatName, summaryComponents && summaryComponents.length > 0 ? summaryComponents : null);
 });
 
 ipcMain.on('ui:toggle-whatsapp-window', async () => {
@@ -2743,15 +2778,16 @@ ipcMain.on('whatsapp:ready', (event) => {
 
 ipcMain.on('whatsapp:response-chat-list', (event, list) => {
     // Only UI requests use this channel; resolve uses whatsapp:chat-list-for-resolve
-    // Check if this response is for scheduled messages
     const isForScheduledMessage = event.sender._isForScheduledMessage;
+    const isForSummary = event.sender._isForSummary;
     if (isForScheduledMessage) {
-        // Clear the flag
         event.sender._isForScheduledMessage = false;
-        // Send to scheduled message handler
+        event.sender._isForSummary = false;
         if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', list);
+    } else if (isForSummary) {
+        event.sender._isForSummary = false;
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', list);
     } else {
-        // Regular chat list request
         if (uiWindow) uiWindow.webContents.send('main:render-chat-list', list);
     }
 });

@@ -8,7 +8,8 @@ let selectedChatNames = new Set();
 let scheduledChats = [];           
 let existingScheduledChats = []; 
 let existingScheduledMessages = [];
-let isTestRunning = false; 
+let isTestRunning = false;
+let summaryFlowChatList = []; 
 
 
 // --- 1. Helpers ---
@@ -108,14 +109,12 @@ function renderOnboardingScreen() {
 
 
 // --- 3. UI Step - Delivery Configuration (UPDATED) ---
-// Helper function to update WhatsApp status indicator
+// Helper function to update WhatsApp status indicator (dashboard LED only)
 function updateWhatsAppStatus(status) {
-    const btn = document.getElementById('toggle-whatsapp-button');
-    if (!btn) return;
-    const label = status === 'connected' ? 'connected' : (status === 'disconnected' ? 'disconnected' : 'connecting...');
-    btn.textContent = `Show/Hide WhatsApp (${label})`;
-    btn.classList.remove('status-connected', 'status-connecting', 'status-disconnected');
-    btn.classList.add(status === 'connected' ? 'status-connected' : (status === 'disconnected' ? 'status-disconnected' : 'status-connecting'));
+    const led = document.getElementById('status-led');
+    if (!led) return;
+    led.classList.remove('status-led-connected', 'status-led-connecting', 'status-led-disconnected');
+    led.classList.add(status === 'connected' ? 'status-led-connected' : (status === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting'));
 }
 
 function renderDeliverySetup(isInitialSetup = true) {
@@ -124,13 +123,16 @@ function renderDeliverySetup(isInitialSetup = true) {
     
     isTestRunning = false; 
 
-    // Simplified delivery setup - only phone number
+    // Simplified delivery setup - only phone number + Show/Hide WhatsApp
     mainSetupDiv.innerHTML = `
         <div class="status-box">
             <h2>⚙️ Settings</h2>
             <p>Please enter your phone number</p>
             <input type="text" id="recipient-phone-number" placeholder="+972..." />
             <div id="delivery-status-message" class="status-message" style="margin-top: 10px; color: red;"></div>
+            <div class="settings-whatsapp-row">
+                <button id="toggle-whatsapp-button" class="secondary-button" title="Show/Hide WhatsApp">Show/Hide WhatsApp</button>
+            </div>
             <div style="display: flex; gap: 10px; margin-top: 20px;">
                 <button id="back-to-dashboard-btn" class="secondary-button" style="flex: 1;">← Back to Dashboard</button>
                 <button id="save-delivery-settings-button" class="primary-button" style="flex: 2;">Save Settings</button>
@@ -145,6 +147,10 @@ function renderDeliverySetup(isInitialSetup = true) {
     // Back button handler
     backButton.addEventListener('click', () => {
         renderDashboard(existingScheduledChats);
+    });
+
+    document.getElementById('toggle-whatsapp-button').addEventListener('click', () => {
+        window.uiApi.sendData('ui:toggle-whatsapp-window');
     });
     
     // Load existing phone number if editing
@@ -648,6 +654,190 @@ function renderScheduledMessageChatSelection(chatList) {
     window.uiApi.sendData('ui:auto-hide-whatsapp');
 }
 
+// --- 6.6 UI Step - Group Summarization Flow ---
+
+const SUMMARY_CATEGORIES = [
+    { key: 'tldr', label: 'Summary' },
+    { key: 'tasks', label: 'Tasks' },
+    { key: 'dates', label: 'Dates' },
+    { key: 'decisions', label: 'Decisions' },
+    { key: 'updates', label: 'Critical Updates' }
+];
+
+function renderSummaryLoadingState() {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+    mainSetupDiv.innerHTML = `
+        <div class="status-box">
+            <h2>Generating Summary...</h2>
+            <p>Reading messages and summarizing. This may take a moment.</p>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="summary-progress-bar" style="width: 0%;"></div>
+            </div>
+            <p class="loading-text" id="summary-loading-text">Initializing...</p>
+        </div>
+    `;
+    let p = 0;
+    const bar = document.getElementById('summary-progress-bar');
+    const text = document.getElementById('summary-loading-text');
+    const iv = setInterval(() => {
+        if (p < 90) {
+            p += 1 + Math.random() * 2;
+            if (p > 90) p = 90;
+            if (bar) bar.style.width = p + '%';
+            if (text) {
+                if (p < 30) text.textContent = 'Opening chat...';
+                else if (p < 60) text.textContent = 'Reading messages...';
+                else text.textContent = 'Summarizing...';
+            }
+        }
+    }, 200);
+    window._summaryLoadingInterval = iv;
+}
+
+function renderSummaryChatSelection(chatList) {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+    summaryFlowChatList = chatList || [];
+    selectedChatNames.clear();
+    if (!chatList || chatList.length === 0) {
+        mainSetupDiv.innerHTML = `
+            <div class="status-box">
+                <h2>❌ No Chats Found</h2>
+                <p>Please ensure you are logged into WhatsApp Web and try again.</p>
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button id="retry-summary-chat-list" class="primary-button">Retry Finding Chats</button>
+                    <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('retry-summary-chat-list').addEventListener('click', () => {
+            renderChatListLoadingState();
+            window.uiApi.sendData('ui:request-chat-list-for-summary');
+        });
+        document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
+            window.uiApi.sendData('ui:request-scheduled-messages');
+        });
+        return;
+    }
+    mainSetupDiv.innerHTML = `
+        <div class="setup-header">
+            <h2>Choose a chat to summarize</h2>
+            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+        </div>
+        <p>Click on the chat you want to summarize.</p>
+        <div style="margin: 15px 0;">
+            <input type="text" id="chat-search-input" placeholder="🔍 Search chats..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+        </div>
+        <div id="chat-list-container" class="chat-selection-container"></div>
+        <button id="next-summary-button" class="primary-button" disabled>Next: Choose summary options</button>
+    `;
+    const container = document.getElementById('chat-list-container');
+    const nextButton = document.getElementById('next-summary-button');
+    const searchInput = document.getElementById('chat-search-input');
+    const allChats = [...chatList];
+    let selectedChatName = null;
+    function renderFilteredChats(filterText = '') {
+        container.innerHTML = '';
+        const filterLower = (filterText || '').toLowerCase().trim();
+        const filtered = filterLower ? allChats.filter(n => n.toLowerCase().includes(filterLower)) : allChats;
+        if (filtered.length === 0) {
+            container.innerHTML = '<p style="color: #666; padding: 20px; text-align: center;">No chats match your search.</p>';
+            return;
+        }
+        filtered.forEach(name => {
+            const btn = document.createElement('button');
+            btn.id = `chat-btn-${name}`;
+            btn.className = 'chat-button' + (selectedChatName === name ? ' selected' : '');
+            btn.textContent = name;
+            btn.addEventListener('click', () => {
+                if (selectedChatName) {
+                    const prev = document.getElementById(`chat-btn-${selectedChatName}`);
+                    if (prev) prev.classList.remove('selected');
+                }
+                selectedChatName = name;
+                btn.classList.add('selected');
+                nextButton.disabled = false;
+            });
+            container.appendChild(btn);
+        });
+    }
+    renderFilteredChats();
+    searchInput.addEventListener('input', (e) => renderFilteredChats(e.target.value));
+    nextButton.addEventListener('click', () => {
+        if (selectedChatName) renderSummaryCategorySelection(selectedChatName);
+        else alert('Please select a chat.');
+    });
+    document.getElementById('back-to-dashboard-btn').addEventListener('click', () => {
+        window.uiApi.sendData('ui:request-scheduled-messages');
+    });
+    window.uiApi.sendData('ui:auto-hide-whatsapp');
+}
+
+function renderSummaryCategorySelection(chatName) {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+    mainSetupDiv.innerHTML = `
+        <div class="setup-header">
+            <h2>Summary options for: ${chatName}</h2>
+            <button id="back-summary-categories-btn" class="secondary-button">← Back</button>
+        </div>
+        <p>Select the sections to include in the summary. Leave all unchecked for full summary.</p>
+        <div class="summary-categories-list" style="margin: 20px 0;">
+            ${SUMMARY_CATEGORIES.map(c => `
+                <label class="summary-category-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 0;">
+                    <input type="checkbox" class="summary-category-checkbox" data-key="${c.key}">
+                    <span>${c.label}</span>
+                </label>
+            `).join('')}
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button id="generate-summary-btn" class="primary-button">Generate Summary</button>
+        </div>
+    `;
+    document.getElementById('back-summary-categories-btn').addEventListener('click', () => {
+        renderSummaryChatSelection(summaryFlowChatList);
+    });
+    document.getElementById('generate-summary-btn').addEventListener('click', () => {
+        const checkboxes = mainSetupDiv.querySelectorAll('.summary-category-checkbox:checked');
+        const components = Array.from(checkboxes).map(cb => cb.dataset.key);
+        if (window._summaryLoadingInterval) {
+            clearInterval(window._summaryLoadingInterval);
+            window._summaryLoadingInterval = null;
+        }
+        renderSummaryLoadingState();
+        window.uiApi.sendData('ui:request-summary-from-ui', { chatName, summaryComponents: components.length > 0 ? components : null });
+    });
+}
+
+function renderSummaryResult(summary, chatName) {
+    if (window._summaryLoadingInterval) {
+        clearInterval(window._summaryLoadingInterval);
+        window._summaryLoadingInterval = null;
+    }
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+    const displaySummary = (summary && typeof summary === 'string') ? summary : (summary || 'No summary generated.');
+    const isHebrew = /[\u0590-\u05FF]/.test(displaySummary);
+    const summaryContentStyle = isHebrew ? 'text-align: right; direction: rtl;' : 'text-align: left;';
+    mainSetupDiv.innerHTML = `
+        <div class="status-box">
+            <h2>Summary: ${chatName || 'Chat'}</h2>
+            <div class="summary-result-actions" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button id="copy-summary-btn" class="primary-button">Copy to clipboard</button>
+                <button id="back-after-summary-btn" class="secondary-button">← Back to Dashboard</button>
+            </div>
+            <div id="summary-result-content" class="summary-result-content" style="white-space: pre-wrap; max-height: 400px; overflow-y: auto; padding: 15px; background: #f8f9fa; border-radius: 8px; ${summaryContentStyle}">${displaySummary.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+        </div>
+    `;
+    document.getElementById('copy-summary-btn').addEventListener('click', () => {
+        navigator.clipboard.writeText(displaySummary).then(() => alert('Copied to clipboard.')).catch(() => alert('Copy failed.'));
+    });
+    document.getElementById('back-after-summary-btn').addEventListener('click', () => {
+        window.uiApi.sendData('ui:request-scheduled-messages');
+    });
+}
+
 function renderScheduledMessageTimeSelection(chatName, existingDate = null, existingTime = null, existingMessage = null, editIndex = null) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
@@ -807,21 +997,18 @@ function renderDashboard(currentSchedules) {
     // Get current WhatsApp connection status
     const whatsappStatus = window.whatsappConnectionStatus || 'connecting'; // 'connecting', 'connected', 'disconnected'
 
-    const statusLabel = whatsappStatus === 'connected' ? 'connected' : (whatsappStatus === 'disconnected' ? 'disconnected' : 'connecting...');
-    const statusClass = whatsappStatus === 'connected' ? 'status-connected' : (whatsappStatus === 'disconnected' ? 'status-disconnected' : 'status-connecting');
+    const statusLedClass = whatsappStatus === 'connected' ? 'status-led-connected' : (whatsappStatus === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting');
     mainSetupDiv.innerHTML = `
         <div class="dashboard-header">
-            <div class="dashboard-title-block">
-                <h2 class="dashboard-title">WhatsApp Assistant</h2>
-                <div class="dashboard-whatsapp-row">
-                    <button id="toggle-whatsapp-button" class="toggle-whatsapp-button ${statusClass}" title="Show/Hide WhatsApp">Show/Hide WhatsApp (${statusLabel})</button>
-                </div>
+            <div class="dashboard-header-right">
+                <span id="status-led" class="status-led ${statusLedClass}" aria-hidden="true"></span>
+                <button id="settings-icon-button" class="settings-icon" title="Settings">⚙️</button>
             </div>
-            <button id="settings-icon-button" class="settings-icon" title="Settings">⚙️</button>
         </div>
         
         <div id="dashboard-controls">
             <button id="add-scheduled-message-button" class="primary-button" style="flex: 1;">+ Add a scheduled message</button>
+            <button id="summarize-chat-button" class="primary-button" style="flex: 1;">Summarize Group/Chat</button>
         </div>
 
         <div id="scheduled-messages-container">
@@ -830,7 +1017,6 @@ function renderDashboard(currentSchedules) {
         </div>
     `;
     
-    // Update WhatsApp status indicator
     updateWhatsAppStatus(whatsappStatus);
 
     // Populate scheduled messages list
@@ -861,13 +1047,14 @@ function renderDashboard(currentSchedules) {
     }
 
     // Add dashboard control listeners
-    document.getElementById('toggle-whatsapp-button').addEventListener('click', () => {
-        window.uiApi.sendData('ui:toggle-whatsapp-window');
-    });
-
     document.getElementById('add-scheduled-message-button').addEventListener('click', () => {
         renderChatListLoadingState();
         window.uiApi.sendData('ui:request-chat-list-for-message'); 
+    });
+
+    document.getElementById('summarize-chat-button').addEventListener('click', () => {
+        renderChatListLoadingState();
+        window.uiApi.sendData('ui:request-chat-list-for-summary');
     });
     
     document.getElementById('settings-icon-button').addEventListener('click', () => {
@@ -1019,6 +1206,28 @@ function initializeIPCListeners() {
         setTimeout(() => {
             renderScheduledMessageChatSelection(chatList);
         }, 300);
+    });
+
+    // 6.6 Receive chat list for summary flow
+    window.uiApi.receiveCommand('main:render-chat-list-for-summary', (chatList) => {
+        if (window.chatListLoadingInterval) {
+            clearInterval(window.chatListLoadingInterval);
+            window.chatListLoadingInterval = null;
+        }
+        const progressBar = document.getElementById('chat-list-progress-bar');
+        const loadingText = document.getElementById('chat-list-loading-text');
+        if (progressBar) progressBar.style.width = '100%';
+        if (loadingText) loadingText.textContent = 'Complete!';
+        setTimeout(() => {
+            renderSummaryChatSelection(chatList);
+        }, 300);
+    });
+
+    // 6.7 Receive summary result (from UI-triggered or on-demand flow)
+    window.uiApi.receiveCommand('main:render-summary', (data) => {
+        const summary = data && data.summary != null ? data.summary : '';
+        const chatName = (data && data.chatName) || '';
+        renderSummaryResult(summary, chatName);
     });
 
     // 7. Automation status updates (for dashboard and test run feedback)

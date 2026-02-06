@@ -309,67 +309,57 @@
         
         .dashboard-header {
             display: flex;
-            justify-content: space-between;
-            align-items: baseline;
+            justify-content: flex-end;
+            align-items: center;
             margin-bottom: 20px;
         }
         
-        .dashboard-title-block {
-            display: grid;
-            grid-template-columns: 1fr;
-            width: max-content;
-            /* 13px gap so total space = 7px (h2 padding+border) + 13px = 20px, matching space below Show/Hide */
-            gap: 13px;
+        .dashboard-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
         
-        .dashboard-title {
-            white-space: nowrap;
-            margin: 0;
+        .status-led {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            align-self: center;
         }
         
-        .dashboard-whatsapp-row {
-            min-width: 0;
+        .dashboard-header-right .settings-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
         
-        .toggle-whatsapp-button {
-            padding: 6px 12px;
-            font-size: 12px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            white-space: nowrap;
-            width: 100%;
-            min-width: 0;
-            box-sizing: border-box;
-            text-align: left;
+        .status-led-connected {
+            background-color: #25d366;
+            box-shadow: 0 0 8px rgba(37, 211, 102, 0.7);
         }
         
-        .toggle-whatsapp-button.status-connected {
-            background-color: #c8e6c9;
-            color: #1b5e20;
+        .status-led-connecting {
+            background-color: #f5a623;
+            box-shadow: 0 0 4px rgba(245, 166, 35, 0.5);
+            animation: status-pulse 1.5s ease-in-out infinite;
         }
         
-        .toggle-whatsapp-button.status-connected:hover {
-            background-color: #a5d6a7;
+        .status-led-disconnected {
+            background-color: #dc3545;
         }
         
-        .toggle-whatsapp-button.status-connecting {
-            background-color: #ffe0b2;
-            color: #e65100;
+        @keyframes status-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
         }
         
-        .toggle-whatsapp-button.status-connecting:hover {
-            background-color: #ffcc80;
+        .settings-whatsapp-row {
+            margin-top: 20px;
         }
         
-        .toggle-whatsapp-button.status-disconnected {
-            background-color: #ffcdd2;
-            color: #b71c1c;
-        }
-        
-        .toggle-whatsapp-button.status-disconnected:hover {
-            background-color: #ef9a9a;
+        .settings-whatsapp-row .secondary-button {
+            margin-top: 0;
         }
         
         .settings-icon {
