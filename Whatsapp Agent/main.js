@@ -77,6 +77,23 @@ function resolveChatName(partialName, list) {
     return partialName;
 }
 
+/** Resolve chat name and return { resolved, found } where found=true if resolution succeeded. */
+function resolveChatNameWithCheck(partialName, list) {
+    if (!partialName) return { resolved: partialName, found: false };
+    if (!list || !Array.isArray(list) || list.length === 0) return { resolved: partialName, found: false };
+    const p = partialName.trim();
+    const exact = list.find((name) => (name || '').trim() === p);
+    if (exact) return { resolved: exact, found: true };
+    const startsWith = list.find((name) => (name || '').trim().indexOf(p) === 0);
+    if (startsWith) return { resolved: startsWith.trim(), found: true };
+    const includes = list.find((name) => {
+        const t = (name || '').trim();
+        return t.includes(p) && containsAtWordBoundary(t, p);
+    });
+    if (includes) return { resolved: includes.trim(), found: true };
+    return { resolved: partialName, found: false };
+}
+
 // Timeout for chat list resolve: getChatList() scrolls through all chats and can take 30–60s for large lists
 const CHAT_LIST_RESOLVE_TIMEOUT_MS = 60000;
 
@@ -188,7 +205,16 @@ async function handleIncomingWhatsAppCommand(message, sender) {
         if (scheduleFlowIntent.time) data.time = scheduleFlowIntent.time;
         if (scheduleFlowIntent.chatName) {
             const list = await getChatListForResolve();
-            data.chatName = resolveChatName(scheduleFlowIntent.chatName, list) || scheduleFlowIntent.chatName;
+            if (!list || list.length === 0) {
+                callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+                return;
+            }
+            const { resolved, found } = resolveChatNameWithCheck(scheduleFlowIntent.chatName, list);
+            if (!found) {
+                callSendNotification(sender, `לא מצאתי איש קשר או קבוצה בשם "${scheduleFlowIntent.chatName}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+                return;
+            }
+            data.chatName = resolved || scheduleFlowIntent.chatName;
         }
         if (data.chatName && data.date && data.time) {
             _conversationStateBySender[sender] = { flow: 'schedule_new', step: 3, data };
@@ -206,8 +232,16 @@ async function handleIncomingWhatsAppCommand(message, sender) {
     if (summaryFlowTrigger.test(text) || (summaryWithTarget && /^(סיכום|סכם|אני\s+רוצה\s+סיכום)/i.test(text.trim()))) {
         if (summaryWithTarget) {
             const list = await getChatListForResolve();
-            const resolvedName = resolveChatName(summaryWithTarget, list) || summaryWithTarget;
-            _conversationStateBySender[sender] = { flow: 'summary', step: 2, data: { chatName: resolvedName } };
+            if (!list || list.length === 0) {
+                callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+                return;
+            }
+            const { resolved: resolvedName, found } = resolveChatNameWithCheck(summaryWithTarget, list);
+            if (!found) {
+                callSendNotification(sender, `לא מצאתי קבוצה או שיחה בשם "${summaryWithTarget}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+                return;
+            }
+            _conversationStateBySender[sender] = { flow: 'summary', step: 2, data: { chatName: resolvedName || summaryWithTarget } };
             callSendNotification(sender, 'מה יופיע בסיכום? (אפשר לבחור מספר או פשוט לכתוב מה שרוצים)\n1 - רק תקציר\n2 - תקציר + משימות\n3 - תקציר + תאריכים\n4 - תקציר + עדכונים חשובים\n5 - הכל (סיכום מלא)').catch(() => {});
             return;
         }
@@ -641,7 +675,15 @@ async function handleSummaryCommandFromText(text, sender) {
     }
 
     const list = await getChatListForResolve();
-    const resolvedName = resolveChatName(chatName, list);
+    if (!list || list.length === 0) {
+        callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+        return;
+    }
+    const { resolved: resolvedName, found } = resolveChatNameWithCheck(chatName, list);
+    if (!found) {
+        callSendNotification(sender, `לא מצאתי קבוצה או שיחה בשם "${chatName}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+        return;
+    }
     if (resolvedName) chatName = resolvedName;
 
     console.log(`[Pusher Command] Triggering Daily Brief for chat: "${chatName}" (sender: ${sender || 'unknown'})`);
@@ -981,8 +1023,16 @@ async function handleScheduleCommandFromText(text, sender) {
         const sample = list.slice(0, 5).map((n, i) => `"${(n || '').trim()}"`).join(', ');
         console.log('[Pusher Command] Chat list sample (first 5):', sample);
     }
-    const resolvedName = resolveChatName(chatName, list);
+    if (!list || list.length === 0) {
+        callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+        return;
+    }
+    const { resolved: resolvedName, found } = resolveChatNameWithCheck(chatName, list);
     console.log('[Pusher Command] Resolve: partialName="' + partialName + '" -> resolvedName="' + (resolvedName || '') + '"');
+    if (!found) {
+        callSendNotification(sender, `לא מצאתי איש קשר או קבוצה בשם "${partialName}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+        return;
+    }
     const fullChatName = (resolvedName && resolvedName.trim()) ? resolvedName.trim() : chatName;
     console.log('[Pusher Command] fullChatName used for confirmation and store:', JSON.stringify(fullChatName));
     if (resolvedName) chatName = resolvedName;
@@ -1064,7 +1114,16 @@ async function handleChangeRecipient(text, sender) {
     if (!newContactPartial) return;
 
     const list = await getChatListForResolve();
-    const fullName = resolveChatName(newContactPartial, list) || newContactPartial;
+    if (!list || list.length === 0) {
+        callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+        return;
+    }
+    const { resolved: fullName, found } = resolveChatNameWithCheck(newContactPartial, list);
+    if (!found) {
+        callSendNotification(sender, `לא מצאתי איש קשר או קבוצה בשם "${newContactPartial}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+        return;
+    }
+    const resolvedFullName = fullName || newContactPartial;
 
     const messages = store.get('scheduledMessages') || [];
     let storeIndex = -1;
@@ -1090,7 +1149,7 @@ async function handleChangeRecipient(text, sender) {
     }
 
     const task = messages[storeIndex];
-    task.chatName = fullName;
+    task.chatName = resolvedFullName;
     task.hadMultipleMatches = false;
     store.set('scheduledMessages', messages);
     if (isUIWindowAvailable() && uiWindow) uiWindow.webContents.send('main:render-scheduled-messages', messages.filter(m => !m.sent));
@@ -1333,8 +1392,16 @@ async function handleConversationStep(text, sender) {
             }
             const forResolve = partialName.replace(/^ל\s*/, '').trim() || partialName;
             const list = await getChatListForResolve();
-            const fullChatName = resolveChatName(forResolve, list) || forResolve;
-            state.data.chatName = fullChatName;
+            if (!list || list.length === 0) {
+                callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+                return;
+            }
+            const { resolved: fullChatName, found } = resolveChatNameWithCheck(forResolve, list);
+            if (!found) {
+                callSendNotification(sender, `לא מצאתי איש קשר או קבוצה בשם "${forResolve}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+                return;
+            }
+            state.data.chatName = fullChatName || forResolve;
             if (state.data.date && state.data.time) {
                 state.step = 3;
                 callSendNotification(sender, 'מה התוכן של ההודעה?').catch(() => {});
@@ -1427,15 +1494,19 @@ async function handleConversationStep(text, sender) {
             }
             const task = messages[storeIndex];
             const value = text.trim();
+            let updated = false;
 
             if (editField === 'message') {
                 task.message = value || task.message;
+                updated = true;
             } else if (editField === 'date') {
+                const oldDate = task.date;
                 const dateMatch = value.match(/(\d{4}-\d{2}-\d{2})/);
                 const dmMatch = !dateMatch && value.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) ? value.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
                 const now = new Date();
                 if (dateMatch) {
                     task.date = dateMatch[1];
+                    updated = true;
                 } else if (dmMatch) {
                     const day = parseInt(dmMatch[1], 10);
                     const month = parseInt(dmMatch[2], 10);
@@ -1446,6 +1517,7 @@ async function handleConversationStep(text, sender) {
                             dateObj = new Date(year + 1, month - 1, day);
                         }
                         task.date = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                        updated = true;
                     }
                 } else {
                     const lower = value.toLowerCase();
@@ -1453,27 +1525,49 @@ async function handleConversationStep(text, sender) {
                         const d = new Date(now);
                         d.setDate(d.getDate() + 1);
                         task.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                        updated = true;
                     } else if (lower.includes('היום') || lower.includes('today')) {
                         task.date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                        updated = true;
                     }
                 }
+                if (!updated) {
+                    callSendNotification(sender, `לא הצלחתי לזהות תאריך ב"${value}". נסה למשל: מחר, היום, או 21.2 או 2026-02-21.`).catch(() => {});
+                    return;
+                }
             } else if (editField === 'time') {
+                const oldTime = task.time;
                 const timeColonMatch = value.match(/(\d{1,2}):(\d{2})/);
                 if (timeColonMatch) {
                     const h = parseInt(timeColonMatch[1], 10);
                     const m = parseInt(timeColonMatch[2], 10);
                     if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
                         task.time = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                        updated = true;
                     }
                 } else {
                     const hour = parseInt(value.replace(/\D/g, ''), 10);
                     if (!isNaN(hour) && hour >= 0 && hour <= 23) {
                         task.time = String(hour).padStart(2, '0') + ':00';
+                        updated = true;
                     }
+                }
+                if (!updated) {
+                    callSendNotification(sender, `לא הצלחתי לזהות שעה ב"${value}". נסה למשל: 14:30 או 21.`).catch(() => {});
+                    return;
                 }
             } else if (editField === 'chatName') {
                 const list = await getChatListForResolve();
-                task.chatName = resolveChatName(value, list) || value;
+                if (!list || list.length === 0) {
+                    callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+                    return;
+                }
+                const { resolved, found } = resolveChatNameWithCheck(value, list);
+                if (!found) {
+                    callSendNotification(sender, `לא מצאתי איש קשר או קבוצה בשם "${value}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+                    return;
+                }
+                task.chatName = resolved || value;
             }
 
             store.set('scheduledMessages', messages);
@@ -1492,8 +1586,16 @@ async function handleConversationStep(text, sender) {
                 return;
             }
             const list = await getChatListForResolve();
-            const resolvedName = resolveChatName(partialName, list) || partialName;
-            state.data.chatName = resolvedName;
+            if (!list || list.length === 0) {
+                callSendNotification(sender, 'לא הצלחתי לגשת לרשימת השיחות. ודא שהאפליקציה פתוחה ונסה שוב.').catch(() => {});
+                return;
+            }
+            const { resolved: resolvedName, found } = resolveChatNameWithCheck(partialName, list);
+            if (!found) {
+                callSendNotification(sender, `לא מצאתי קבוצה או שיחה בשם "${partialName}". נסה שם אחר או שלח 'רשימת הודעות' לראות את הרשימה.`).catch(() => {});
+                return;
+            }
+            state.data.chatName = resolvedName || partialName;
             state.step = 2;
             callSendNotification(sender, 'מה יופיע בסיכום? (אפשר לבחור מספר או פשוט לכתוב מה שרוצים)\n1 - רק תקציר\n2 - תקציר + משימות\n3 - תקציר + תאריכים\n4 - תקציר + עדכונים חשובים\n5 - הכל (סיכום מלא)').catch(() => {});
             return;
@@ -1503,6 +1605,10 @@ async function handleConversationStep(text, sender) {
             const chatName = state.data.chatName;
             if (!chatName) {
                 delete _conversationStateBySender[sender];
+                return;
+            }
+            if (summaryComponents === null && text.trim() && !/^5\s*$|^הכל|סיכום\s+מלא/i.test(text.trim())) {
+                callSendNotification(sender, 'לא הבנתי את הבחירה. שלח מספר (1-5) או כתוב מה תרצה בסיכום (תקציר, משימות, תאריכים, עדכונים).').catch(() => {});
                 return;
             }
             delete _conversationStateBySender[sender];

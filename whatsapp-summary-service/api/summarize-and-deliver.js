@@ -253,9 +253,16 @@ function filterSummaryByComponents(summary, summaryComponents) {
         if (contentByKey[key]) {
             let part = contentByKey[key];
             const partLines = part.split('\n');
-            if (partLines.length >= 2 && partLines[0].trim() === partLines[1].trim()) {
-                part = partLines[0] + '\n' + partLines.slice(2).join('\n').trim();
+            // Remove all consecutive duplicate headers
+            const header = partLines[0].trim();
+            const filteredLines = [partLines[0]];
+            for (let i = 1; i < partLines.length; i++) {
+                if (partLines[i].trim() !== header) {
+                    filteredLines.push(...partLines.slice(i));
+                    break;
+                }
             }
+            part = filteredLines.join('\n').trim();
             parts.push(part);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
