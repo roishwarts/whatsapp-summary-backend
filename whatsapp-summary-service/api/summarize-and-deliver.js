@@ -233,23 +233,24 @@ function filterSummaryByComponents(summary, summaryComponents) {
                 if (content && !contentByKey[key]) {
                     const header = lines[matches[i].index].trim();
                     const label = SECTION_LABELS_HE[key] || key;
-                    // Store the detected header (LLM already included it)
-                    headerByKey[key] = label; // Use standardized label, but mark that header exists
-                    // Remove ALL occurrences of BOTH the detected header AND the standardized label from entire content
+                    // Remove ALL occurrences of duplicate headers from content (LLM already included header once)
                     const contentLines = content.split('\n');
                     const filteredLines = [];
                     for (const line of contentLines) {
                         const lineTrimmed = line.trim();
-                        // Skip lines that match either the detected header or the standardized label
+                        // Skip lines that match either the detected header or the standardized label (duplicates)
                         if (lineTrimmed !== header && lineTrimmed !== label) {
                             filteredLines.push(line);
                         }
                     }
                     content = filteredLines.join('\n').trim();
-                    // Store ONLY content (no header)
+                    // Store header + content (LLM already included header, we just clean duplicates)
                     if (content) {
-                        contentByKey[key] = content;
+                        contentByKey[key] = `${header}\n${content}`;
+                    } else {
+                        contentByKey[key] = header;
                     }
+                    headerByKey[key] = true; // Mark that header exists
                 }
             }
         }
@@ -274,15 +275,9 @@ function filterSummaryByComponents(summary, summaryComponents) {
     for (const key of summaryComponents) {
         const label = SECTION_LABELS_HE[key] || key;
         if (contentByKey[key]) {
-            // Content was extracted after removing headers, so always prepend the standardized label
-            // But first, ensure no header remains in the content (final safety check)
-            let cleanContent = contentByKey[key];
-            const firstLine = cleanContent.split('\n')[0]?.trim();
-            if (firstLine === label) {
-                // Header still present - remove it
-                cleanContent = cleanContent.split('\n').slice(1).join('\n').trim();
-            }
-            parts.push(`${label}\n${cleanContent}`);
+            // LLM always includes headers (per template), so contentByKey already has header + content
+            // Just output it as-is (we already cleaned duplicate headers during extraction)
+            parts.push(contentByKey[key]);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
             parts.push(`${label}\n${notFound}`);
