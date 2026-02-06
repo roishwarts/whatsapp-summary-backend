@@ -223,6 +223,19 @@ function filterSummaryByComponents(summary, summaryComponents) {
         }
         matches.sort((a, b) => a.index - b.index);
 
+        const headerPatternsByKey = Object.fromEntries(SECTION_HEADERS.map(s => [s.key, s.patterns]));
+        function isSectionHeaderLine(key, line) {
+            const t = line.trim();
+            if (!t) return false;
+            const label = SECTION_LABELS_HE[key] || key;
+            if (t === label) return true;
+            // Match "תאריכים", "תאריכים:", "תאריכים -", etc.
+            if (label && (t === label || t.startsWith(label + ':') || t.startsWith(label + ' ') || t.startsWith(label + '\t'))) return true;
+            const patterns = headerPatternsByKey[key];
+            if (patterns && patterns.some(p => p.test(t))) return true;
+            return false;
+        }
+
         for (let i = 0; i < matches.length; i++) {
             const start = matches[i].index;
             const end = i + 1 < matches.length ? matches[i + 1].index : lines.length;
@@ -230,13 +243,10 @@ function filterSummaryByComponents(summary, summaryComponents) {
             if (set.has(key) && !contentByKey[key]) {
                 // Take the full section from LLM (including header line) - do NOT add our own title
                 const sectionLines = lines.slice(start, end);
-                const header = sectionLines[0]?.trim();
-                const label = SECTION_LABELS_HE[key] || key;
-                // Remove duplicate header lines only (so "תאריכים\nתאריכים\nלא נמצאו" -> "תאריכים\nלא נמצאו")
+                // Remove duplicate header lines: keep only the first; skip any later line that looks like the section title
                 const outLines = [];
                 for (const line of sectionLines) {
-                    const t = line.trim();
-                    if (t === header || t === label) {
+                    if (isSectionHeaderLine(key, line)) {
                         if (outLines.length === 0) outLines.push(line);
                     } else {
                         outLines.push(line);
@@ -339,6 +349,7 @@ FINAL OUTPUT RULES (MUST FOLLOW EXACTLY):
 - Preserve the section order
 - If a section has NO content, OMIT IT COMPLETELY
 - Never write placeholders like "None" or "No updates"
+- Write each section header exactly ONCE on its own line. Do NOT repeat the section title inside the section body or on a second line (e.g. do not write "תאריכים" or "עדכונים חשובים" twice)
 
 OUTPUT FORMAT (USER SEES THIS):
 

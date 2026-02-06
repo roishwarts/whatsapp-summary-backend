@@ -855,9 +855,11 @@ function parseDateAndTimeOnly(text) {
     }
     if (!time) return null;
 
-    // Date: YYYY-MM-DD, d.m, or מחר/היום
+    // Date: YYYY-MM-DD, d.m, d/m, or מחר/היום
     const dateMatch = fullText.match(/(\d{4}-\d{2}-\d{2})/);
-    const dmMatch = !dateMatch ? fullText.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+    const dmDot = !dateMatch ? fullText.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+    const dmSlash = !dateMatch && !dmDot ? fullText.match(/(?:ב)?(\d{1,2})\/(\d{1,2})\/?/) : null;
+    const dmMatch = dmDot || dmSlash;
     const now = new Date();
     let date;
 
@@ -929,9 +931,11 @@ function parseScheduleCommandFromText(text) {
         return null;
     }
 
-    // 3) Date: YYYY-MM-DD or Hebrew short form d.m / d.m. (day.month)
+    // 3) Date: YYYY-MM-DD or short form d.m / d/m (day.month)
     const dateMatch = fullText.match(/(\d{4}-\d{2}-\d{2})/);
-    const dmMatch = !dateMatch ? fullText.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+    const dmDot = !dateMatch ? fullText.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+    const dmSlash = !dateMatch && !dmDot ? fullText.match(/(?:ב)?(\d{1,2})\/(\d{1,2})\/?/) : null;
+    const dmMatch = dmDot || dmSlash;
 
     let date;
     const now = new Date();
@@ -1341,6 +1345,22 @@ function parseEditPayload(text) {
                 out.date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             } else if (lower.includes('היום') || lower.includes('today')) {
                 out.date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            } else {
+                const dmDot = raw.match(/(\d{1,2})\.(\d{1,2})\.?/);
+                const dmSlash = !dmDot && raw.match(/(\d{1,2})\/(\d{1,2})\/?/);
+                const dm = dmDot || dmSlash;
+                if (dm) {
+                    const day = parseInt(dm[1], 10);
+                    const month = parseInt(dm[2], 10);
+                    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                        const year = now.getFullYear();
+                        let dateObj = new Date(year, month - 1, day);
+                        if (dateObj < new Date(year, now.getMonth(), now.getDate())) {
+                            dateObj = new Date(year + 1, month - 1, day);
+                        }
+                        out.date = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                    }
+                }
             }
         }
     }
@@ -1420,7 +1440,7 @@ async function handleConversationStep(text, sender) {
             // Capture date/time (only when not already set from trigger)
             const parsed = parseDateAndTimeOnly(text);
             if (!parsed) {
-                callSendNotification(sender, 'לא הצלחתי לזהות תאריך ושעה. נסה למשל: מחר 21:00 או 31.1 14:30').catch(() => {});
+                callSendNotification(sender, 'לא הצלחתי לזהות תאריך ושעה. נסה למשל: מחר 21:00 או 31.1 14:30 או 28/02 14:30').catch(() => {});
                 return;
             }
             state.data.date = parsed.date;
@@ -1507,7 +1527,9 @@ async function handleConversationStep(text, sender) {
             } else if (editField === 'date') {
                 const oldDate = task.date;
                 const dateMatch = value.match(/(\d{4}-\d{2}-\d{2})/);
-                const dmMatch = !dateMatch && value.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) ? value.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+                const dmDot = !dateMatch ? value.match(/(?:ב)?(\d{1,2})\.(\d{1,2})\.?/) : null;
+                const dmSlash = !dateMatch && !dmDot ? value.match(/(?:ב)?(\d{1,2})\/(\d{1,2})\/?/) : null;
+                const dmMatch = dmDot || dmSlash;
                 const now = new Date();
                 if (dateMatch) {
                     task.date = dateMatch[1];
@@ -1537,7 +1559,7 @@ async function handleConversationStep(text, sender) {
                     }
                 }
                 if (!updated) {
-                    callSendNotification(sender, `לא הצלחתי לזהות תאריך ב"${value}". נסה למשל: מחר, היום, או 21.2 או 2026-02-21.`).catch(() => {});
+                    callSendNotification(sender, `לא הצלחתי לזהות תאריך ב"${value}". נסה למשל: מחר, היום, 21.2, 28/02 או 2026-02-21.`).catch(() => {});
                     return;
                 }
             } else if (editField === 'time') {
