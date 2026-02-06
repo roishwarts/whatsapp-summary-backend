@@ -815,7 +815,12 @@ function parseScheduleFlowIntent(text) {
     if (oneShot) return null;
 
     const dateTime = parseDateAndTimeOnly(t);
-    const chatName = extractChatNameFromScheduleText(t) || extractChatNameFromText(t);
+    // Only extract chat name if there's an explicit recipient marker (ל, לקבוצה, to, for)
+    // This prevents extracting chat names from the schedule verb itself
+    let chatName = null;
+    if (/ל\s+[^\s]|לקבוצה\s+|to\s+|for\s+/i.test(t)) {
+        chatName = extractChatNameFromScheduleText(t) || extractChatNameFromText(t);
+    }
     return {
         startFlow: true,
         date: dateTime ? dateTime.date : undefined,

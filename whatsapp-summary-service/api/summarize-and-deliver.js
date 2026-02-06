@@ -231,7 +231,11 @@ function filterSummaryByComponents(summary, summaryComponents) {
                 let content = getSectionContent(start, end, lines);
                 if (content && !contentByKey[key]) {
                     const header = lines[matches[i].index].trim();
-                    if (content.startsWith(header)) {
+                    // Remove header if it appears at the start of content (with or without newline)
+                    const contentLines = content.split('\n');
+                    if (contentLines.length > 0 && contentLines[0].trim() === header) {
+                        content = contentLines.slice(1).join('\n').trim();
+                    } else if (content.startsWith(header)) {
                         content = content.slice(header.length).replace(/^\s*\n?/, '').trim();
                     }
                     if (content) {
@@ -253,7 +257,7 @@ function filterSummaryByComponents(summary, summaryComponents) {
         if (contentByKey[key]) {
             let part = contentByKey[key];
             const partLines = part.split('\n');
-            // Remove all consecutive duplicate headers
+            // Remove all consecutive duplicate headers (check all lines, not just first two)
             const header = partLines[0].trim();
             const filteredLines = [partLines[0]];
             for (let i = 1; i < partLines.length; i++) {
@@ -263,6 +267,11 @@ function filterSummaryByComponents(summary, summaryComponents) {
                 }
             }
             part = filteredLines.join('\n').trim();
+            // Final check: if the result still starts with duplicate header, remove it
+            const finalLines = part.split('\n');
+            if (finalLines.length >= 2 && finalLines[0].trim() === header && finalLines[1].trim() === header) {
+                part = [header, ...finalLines.slice(2)].join('\n').trim();
+            }
             parts.push(part);
         } else {
             const notFound = key === 'tldr' ? `לא נמצא תקציר בשיחה.` : `לא נמצאו ${label} בשיחה.`;
