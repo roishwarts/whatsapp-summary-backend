@@ -1,11 +1,10 @@
-// Install these dependencies in the Vercel project: openai, twilio, nodemailer
+// Install these dependencies in the Vercel project: openai, nodemailer
 const { OpenAI } = require('openai');
-const twilio = require('twilio');
 const nodemailer = require('nodemailer');
+const { sendWhatsAppResponse } = require('./lib/whatsapp-shared');
 
-// --- Initialization: Uses Environment Variables (Set in Vercel Settings) ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+const defaultProvider = process.env.DEFAULT_WHATSAPP_PROVIDER || 'twilio';
 
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -432,21 +431,9 @@ Generate the final daily brief now.
 
 async function sendWhatsAppMessage(recipientPhoneNumber, summary, chatName) {
     if (!recipientPhoneNumber) return 'WhatsApp Skipped: No number.';
-    try {
-        // Normalize spacing in summary (one blank line between sections)
-        const normalizedSummary = normalizeSummarySpacing(summary);
-        const message = await twilioClient.messages.create({
-            from: process.env.TWILIO_WHATSAPP_NUMBER,
-            to: `whatsapp:${recipientPhoneNumber}`,
-            body: `${chatName} - ${new Date().toLocaleDateString('he-IL')}
-\n${normalizedSummary}`,
-        });
-        return `WhatsApp sent: ${message.sid}`;
-    } catch (e) {
-        // Log the error but don't fail the whole function (we still want the summary)
-        console.error('Twilio Error:', e.message);
-        return `WhatsApp Delivery Failed: ${e.message}`;
-    }
+    const normalizedSummary = normalizeSummarySpacing(summary);
+    const body = `${chatName} - ${new Date().toLocaleDateString('he-IL')}\n\n${normalizedSummary}`;
+    return sendWhatsAppResponse(recipientPhoneNumber, body, defaultProvider);
 }
 
 async function sendEmail(recipientEmail, chatName, summaryHtml) {

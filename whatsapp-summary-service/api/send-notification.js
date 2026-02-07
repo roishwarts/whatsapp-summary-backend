@@ -1,29 +1,26 @@
-// Send a single WhatsApp notification via Twilio (used for confirmations, success, missed, list/edit/delete replies)
-const twilio = require('twilio');
-
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+// Send a single WhatsApp notification (Twilio or Meta via shared helper)
+const { sendWhatsAppResponse } = require("./lib/whatsapp-shared");
 
 module.exports = async (req, res) => {
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
+    if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method Not Allowed" });
     }
 
-    const { to, message } = req.body;
-
+    const { to, message, provider } = req.body;
     if (!to || !message) {
-        return res.status(400).json({ error: 'Missing required fields: to, message' });
+        return res.status(400).json({ error: "Missing required fields: to, message" });
     }
 
     try {
-        const phoneNumber = to.startsWith('whatsapp:') ? to.replace('whatsapp:', '') : to;
-        await twilioClient.messages.create({
-            from: process.env.TWILIO_WHATSAPP_NUMBER,
-            to: `whatsapp:${phoneNumber}`,
-            body: message
-        });
-        return res.status(200).json({ ok: true });
+        const result = await sendWhatsAppResponse(to, message, provider || "twilio");
+        const ok = result.startsWith("WhatsApp sent");
+        if (ok) {
+            return res.status(200).json({ ok: true });
+        }
+        console.error("[send-notification]", result);
+        return res.status(500).json({ error: result || "Failed to send notification" });
     } catch (e) {
-        console.error('[send-notification] Twilio error:', e.message);
-        return res.status(500).json({ error: e.message || 'Failed to send notification' });
+        console.error("[send-notification]", e.message);
+        return res.status(500).json({ error: e.message || "Failed to send notification" });
     }
 };

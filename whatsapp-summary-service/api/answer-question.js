@@ -1,10 +1,9 @@
-// Install these dependencies in the Vercel project: openai, twilio
+// Install these dependencies in the Vercel project: openai
 const { OpenAI } = require('openai');
-const twilio = require('twilio');
+const { sendWhatsAppResponse } = require('./lib/whatsapp-shared');
 
-// --- Initialization: Uses Environment Variables (Set in Vercel Settings) ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+const defaultProvider = process.env.DEFAULT_WHATSAPP_PROVIDER || 'twilio';
 
 /**
  * Call OpenAI API to answer a question based on WhatsApp messages.
@@ -61,26 +60,9 @@ Answer the user's question now based on the messages provided, using semantic un
     return completion.choices[0].message.content;
 }
 
-async function sendWhatsAppAnswer(recipientPhoneNumber, chatName, question, answer) {
+async function sendWhatsAppAnswer(recipientPhoneNumber, answer) {
     if (!recipientPhoneNumber) return 'WhatsApp Skipped: No recipient number.';
-    try {
-        // Remove 'whatsapp:' prefix if present (sender comes as 'whatsapp:+972...')
-        const phoneNumber = recipientPhoneNumber.startsWith('whatsapp:') 
-            ? recipientPhoneNumber.replace('whatsapp:', '') 
-            : recipientPhoneNumber;
-        
-        // Send only the answer text, no headers or question
-        const message = await twilioClient.messages.create({
-            from: process.env.TWILIO_WHATSAPP_NUMBER,
-            to: `whatsapp:${phoneNumber}`,
-            body: answer
-        });
-        return `WhatsApp sent: ${message.sid}`;
-    } catch (e) {
-        // Log the error but don't fail the whole function
-        console.error('Twilio Error:', e.message);
-        return `WhatsApp Delivery Failed: ${e.message}`;
-    }
+    return sendWhatsAppResponse(recipientPhoneNumber, answer, defaultProvider);
 }
 
 // The Main Serverless Function Handler
@@ -125,7 +107,7 @@ module.exports = async (req, res) => {
         let whatsappStatus = 'WhatsApp Skipped: No sender.';
         if (sender) {
             try {
-                whatsappStatus = await sendWhatsAppAnswer(sender, chatName, question, answer);
+                whatsappStatus = await sendWhatsAppAnswer(sender, answer);
             } catch (sendError) {
                 console.error('[Answer-Question API] Error sending WhatsApp:', sendError);
                 whatsappStatus = `WhatsApp Delivery Failed: ${sendError.message}`;
