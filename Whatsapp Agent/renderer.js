@@ -9,7 +9,112 @@ let scheduledChats = [];
 let existingScheduledChats = []; 
 let existingScheduledMessages = [];
 let isTestRunning = false;
-let summaryFlowChatList = []; 
+let summaryFlowChatList = [];
+
+// --- i18n ---
+const TRANSLATIONS = {
+    loadingApp: { en: 'Loading Application...', he: 'טוען את האפליקציה...' },
+    checkingLogin: { en: 'Checking login status and configuration.', he: 'בודק סטטוס התחברות והגדרות.' },
+    loadingChats: { en: 'Loading Your Chats...', he: 'טוען את הצ\'אטים...' },
+    searchingChats: { en: 'Searching through your WhatsApp chats. This may take a few seconds...', he: 'מחפש בצ\'אטים של וואטסאפ. זה עלול לקחת כמה שניות...' },
+    initializing: { en: 'Initializing...', he: 'מאתחל...' },
+    connectingWhatsApp: { en: 'Connecting to WhatsApp...', he: 'מתחבר לווואטסאפ...' },
+    scanningChatList: { en: 'Scanning chat list...', he: 'סורק רשימת צ\'אטים...' },
+    collectingNames: { en: 'Collecting chat names...', he: 'אוסף שמות צ\'אטים...' },
+    finalizing: { en: 'Finalizing...', he: 'מסיים...' },
+    hello: { en: 'Hello 👋', he: 'שלום 👋' },
+    scanQR: { en: 'Please scan the QR code to connect to WhatsApp.', he: 'נא לסרוק את קוד ה-QR כדי להתחבר לווואטסאפ.' },
+    afterConnect: { en: 'After that, you can minimize this window and enjoy your daily brief directly in WhatsApp.', he: 'אחר כך תוכל למזער את החלון וליהנות מהתקציר היומי ישירות בווואטסאפ.' },
+    qrAppear: { en: 'The QR code will appear in the WhatsApp window. Once connected, this window will automatically hide.', he: 'קוד ה-QR יופיע בחלון הווואטסאפ. לאחר ההתחברות, החלון יוסתר אוטומטית.' },
+    settings: { en: '⚙️ Settings', he: '⚙️ הגדרות' },
+    enterPhone: { en: 'Please enter your phone number', he: 'נא להזין את מספר הטלפון שלך' },
+    appearance: { en: 'Appearance', he: 'מראה' },
+    light: { en: 'Light', he: 'בהיר' },
+    dark: { en: 'Dark', he: 'כהה' },
+    language: { en: 'Language', he: 'שפה' },
+    english: { en: 'English', he: 'English' },
+    hebrew: { en: 'Hebrew', he: 'עברית' },
+    showHideWhatsApp: { en: 'Show/Hide WhatsApp', he: 'הצג/הסתר וואטסאפ' },
+    backToDashboard: { en: '← Back to Dashboard', he: '← חזרה ללוח הבקרה' },
+    backToDashboardShort: { en: 'Back to Dashboard', he: 'חזרה ללוח הבקרה' },
+    saveSettings: { en: 'Save Settings', he: 'שמור הגדרות' },
+    settingsSaved: { en: 'Settings saved.', he: 'ההגדרות נשמרו.' },
+    noChatsFound: { en: 'No Chats Found', he: 'לא נמצאו צ\'אטים' },
+    noChatsFoundEmoji: { en: '❌ No Chats Found', he: '❌ לא נמצאו צ\'אטים' },
+    ensureLoggedIn: { en: 'Please ensure you are logged into WhatsApp Web and try again.', he: 'נא לוודא שהתחברת לווואטסאפ ווב ולנסות שוב.' },
+    showWhatsAppWindow: { en: 'Show WhatsApp Window', he: 'הצג חלון וואטסאפ' },
+    retryFindingChats: { en: 'Retry Finding Chats', he: 'נסה שוב למצוא צ\'אטים' },
+    selectChatsDailyBrief: { en: 'Select Chats for Daily Brief', he: 'בחר צ\'אטים לתקציר יומי' },
+    searchChats: { en: '🔍 Search chats...', he: '🔍 חפש צ\'אטים...' },
+    nextConfigureSchedules: { en: 'Next: Configure Schedules', he: 'הבא: הגדר זמנים' },
+    setDailyBriefSchedules: { en: 'Set Daily Brief Schedules', he: 'הגדר זמנים לתקציר יומי' },
+    saveStartAutomation: { en: 'Save & Start Automation', he: 'שמור והפעל אוטומציה' },
+    editScheduleFor: { en: '✏️ Edit Schedule for:', he: '✏️ ערוך זמנים עבור:' },
+    saveSchedule: { en: 'Save Schedule', he: 'שמור זמנים' },
+    chooseWhoSendMessage: { en: 'Choose to who you want to send the message', he: 'בחר למי לשלוח את ההודעה' },
+    refreshChats: { en: 'Refresh chats', he: 'רענן צ\'אטים' },
+    nextConfigureWhen: { en: 'Next: Configure when to send the message', he: 'הבא: הגדר מתי לשלוח את ההודעה' },
+    chooseChatToSummarize: { en: 'Choose a chat to summarize', he: 'בחר צ\'אט לסכם' },
+    nextSummaryOptions: { en: 'Next: Choose summary options', he: 'הבא: בחר אפשרויות תקציר' },
+    summaryOptionsFor: { en: 'Summary options for:', he: 'אפשרויות תקציר עבור:' },
+    back: { en: '← Back', he: '← חזרה' },
+    generateSummary: { en: 'Generate Summary', he: 'צור תקציר' },
+    generatingSummary: { en: 'Generating Summary...', he: 'מייצר תקציר...' },
+    readingSummarizing: { en: 'Reading messages and summarizing. This may take a moment.', he: 'קורא הודעות ומסכם. זה עלול לקחת רגע.' },
+    openingChat: { en: 'Opening chat...', he: 'פותח צ\'אט...' },
+    readingMessages: { en: 'Reading messages...', he: 'קורא הודעות...' },
+    summarizing: { en: 'Summarizing...', he: 'מסכם...' },
+    summary: { en: 'Summary', he: 'תקציר' },
+    copyToClipboard: { en: 'Copy to clipboard', he: 'העתק ללוח' },
+    noMessagesForChat: { en: 'No messages found for the selected chat.', he: 'לא נמצאו הודעות לצ\'אט שנבחר.' },
+    noSummaryGenerated: { en: 'No summary generated.', he: 'לא נוצר תקציר.' },
+    configureWhenSend: { en: 'Configure when to send the message', he: 'הגדר מתי לשלוח את ההודעה' },
+    selectDateTime: { en: 'Select the date and time when you want to send the message to', he: 'בחר את התאריך והשעה לשליחת ההודעה ל' },
+    date: { en: 'Date:', he: 'תאריך:' },
+    time: { en: 'Time:', he: 'שעה:' },
+    next: { en: 'Next', he: 'הבא' },
+    typeYourMessage: { en: 'Type your message', he: 'הקלד את ההודעה' },
+    enterMessageSendTo: { en: 'Enter the message you want to send to', he: 'הזן את ההודעה שברצונך לשלוח ל' },
+    typeMessagePlaceholder: { en: 'Type your message here...', he: 'הקלד את ההודעה כאן...' },
+    save: { en: 'Save', he: 'שמור' },
+    scheduleMessage: { en: 'Schedule Message', he: 'תזמן הודעה' },
+    summarize: { en: 'Summarize', he: 'סכם' },
+    scheduledMessages: { en: 'Scheduled Messages', he: 'הודעות מתוזמנות' },
+    noMessagesScheduled: { en: 'No messages are currently scheduled.', he: 'אין הודעות מתוזמנות כרגע.' },
+    editMessage: { en: 'Edit message', he: 'ערוך הודעה' },
+    deleteMessage: { en: 'Delete message', he: 'מחק הודעה' },
+    chat: { en: 'Chat', he: 'צ\'אט' },
+    categorySummary: { en: 'Summary', he: 'תקציר' },
+    categoryTasks: { en: 'Tasks', he: 'משימות' },
+    categoryDates: { en: 'Dates', he: 'תאריכים' },
+    categoryDecisions: { en: 'Decisions', he: 'החלטות' },
+    categoryUpdates: { en: 'Critical Updates', he: 'עדכונים קריטיים' },
+    noChatsMatchSearch: { en: 'No chats match your search.', he: 'אין צ\'אטים התואמים לחיפוש.' },
+    noChatsToSchedule: { en: 'No chats to schedule. Please go back and select chats.', he: 'אין צ\'אטים לתזמון. נא לחזור ולבחור צ\'אטים.' },
+    pleaseEnterPhone: { en: 'Please enter your phone number.', he: 'נא להזין את מספר הטלפון שלך.' },
+    confirmDeleteMessage: { en: 'Are you sure you want to delete the scheduled message to', he: 'האם אתה בטוח שברצונך למחוק את ההודעה המתוזמנת ל' },
+    copiedToClipboard: { en: 'Copied to clipboard.', he: 'הועתק ללוח.' },
+    copyFailed: { en: 'Copy failed.', he: 'ההעתקה נכשלה.' },
+};
+let currentLanguage = 'en';
+
+function t(key) {
+    const entry = TRANSLATIONS[key];
+    if (!entry) return key;
+    return entry[currentLanguage] || entry.en || key;
+}
+
+function applyLanguage(lang) {
+    const l = (lang === 'he' || lang === 'en') ? lang : 'en';
+    currentLanguage = l;
+    const root = document.documentElement;
+    root.setAttribute('lang', l);
+    root.setAttribute('dir', l === 'he' ? 'rtl' : 'ltr');
+}
+
+function getCurrentLanguage() {
+    return currentLanguage;
+} 
 
 
 // --- 1. Helpers ---
@@ -32,8 +137,8 @@ function renderLoadingState() {
 
     mainSetupDiv.innerHTML = `
         <div class="status-box">
-            <h2>Loading Application...</h2>
-            <p>Checking login status and configuration.</p>
+            <h2>${t('loadingApp')}</h2>
+            <p>${t('checkingLogin')}</p>
         </div>
     `;
 }
@@ -47,12 +152,12 @@ function renderChatListLoadingState() {
 
     mainSetupDiv.innerHTML = `
         <div class="status-box">
-            <h2>Loading Your Chats...</h2>
-            <p>Searching through your WhatsApp chats. This may take a few seconds...</p>
+            <h2>${t('loadingChats')}</h2>
+            <p>${t('searchingChats')}</p>
             <div class="progress-bar-container">
                 <div class="progress-bar" id="chat-list-progress-bar"></div>
             </div>
-            <p class="loading-text" id="chat-list-loading-text">Initializing...</p>
+            <p class="loading-text" id="chat-list-loading-text">${t('initializing')}</p>
         </div>
     `;
     
@@ -70,13 +175,13 @@ function renderChatListLoadingState() {
             
             // Update loading text based on progress
             if (progress < 25) {
-                loadingText.textContent = 'Connecting to WhatsApp...';
+                loadingText.textContent = t('connectingWhatsApp');
             } else if (progress < 50) {
-                loadingText.textContent = 'Scanning chat list...';
+                loadingText.textContent = t('scanningChatList');
             } else if (progress < 75) {
-                loadingText.textContent = 'Collecting chat names...';
+                loadingText.textContent = t('collectingNames');
             } else {
-                loadingText.textContent = 'Finalizing...';
+                loadingText.textContent = t('finalizing');
             }
         }
     }, 200); // Check every 200ms for smoother animation
@@ -93,14 +198,14 @@ function renderOnboardingScreen() {
     
     mainSetupDiv.innerHTML = `
         <div class="status-box" style="text-align: center; padding: 40px 20px;">
-            <h2 style="font-size: 28px; margin-bottom: 20px;">Hello 👋</h2>
+            <h2 style="font-size: 28px; margin-bottom: 20px;">${t('hello')}</h2>
             <p style="font-size: 16px; line-height: 1.6; margin-bottom: 30px; color: #666;">
-                Please scan the QR code to connect to WhatsApp.<br>
-                After that, you can minimize this window and enjoy your daily brief directly in WhatsApp.
+                ${t('scanQR')}<br>
+                ${t('afterConnect')}
             </p>
             <div style="margin-top: 30px; padding: 20px; background-color: #f5f5f5; border-radius: 8px;">
                 <p style="color: #666; font-size: 14px;">
-                    The QR code will appear in the WhatsApp window. Once connected, this window will automatically hide.
+                    ${t('qrAppear')}
                 </p>
             </div>
         </div>
@@ -117,25 +222,50 @@ function updateWhatsAppStatus(status) {
     led.classList.add(status === 'connected' ? 'status-led-connected' : (status === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting'));
 }
 
+function applyTheme(theme) {
+    const t = (theme === 'light' || theme === 'dark') ? theme : 'dark';
+    document.documentElement.setAttribute('data-theme', t);
+}
+
+function getCurrentTheme() {
+    return document.documentElement.getAttribute('data-theme') || 'dark';
+}
+
 function renderDeliverySetup(isInitialSetup = true) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
     
     isTestRunning = false; 
 
-    // Simplified delivery setup - only phone number + Show/Hide WhatsApp
+    const currentTheme = getCurrentTheme();
+    const currentLang = getCurrentLanguage();
+    // Simplified delivery setup - phone number + Theme + Language + Show/Hide WhatsApp
     mainSetupDiv.innerHTML = `
         <div class="status-box">
-            <h2>⚙️ Settings</h2>
-            <p>Please enter your phone number</p>
+            <h2>${t('settings')}</h2>
+            <p>${t('enterPhone')}</p>
             <input type="text" id="recipient-phone-number" placeholder="+972..." />
+            <div class="settings-theme-row" style="margin-top: 20px; margin-bottom: 12px;">
+                <label style="font-weight: 600; margin-right: 12px;">${t('appearance')}</label>
+                <div class="theme-toggle" style="display: inline-flex; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--secondary-border);">
+                    <button type="button" id="theme-light-btn" class="theme-toggle-btn ${currentTheme === 'light' ? 'active' : ''}" data-theme="light" style="padding: 8px 16px; border: none; background: ${currentTheme === 'light' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('light')}</button>
+                    <button type="button" id="theme-dark-btn" class="theme-toggle-btn ${currentTheme === 'dark' ? 'active' : ''}" data-theme="dark" style="padding: 8px 16px; border: none; background: ${currentTheme === 'dark' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('dark')}</button>
+                </div>
+            </div>
+            <div class="settings-theme-row" style="margin-bottom: 16px;">
+                <label style="font-weight: 600; margin-right: 12px;">${t('language')}</label>
+                <div class="theme-toggle" style="display: inline-flex; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--secondary-border);">
+                    <button type="button" id="lang-en-btn" class="theme-toggle-btn ${currentLang === 'en' ? 'active' : ''}" data-lang="en" style="padding: 8px 16px; border: none; background: ${currentLang === 'en' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('english')}</button>
+                    <button type="button" id="lang-he-btn" class="theme-toggle-btn ${currentLang === 'he' ? 'active' : ''}" data-lang="he" style="padding: 8px 16px; border: none; background: ${currentLang === 'he' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('hebrew')}</button>
+                </div>
+            </div>
             <div id="delivery-status-message" class="status-message" style="margin-top: 10px; color: red;"></div>
             <div class="settings-whatsapp-row">
-                <button id="toggle-whatsapp-button" class="secondary-button" title="Show/Hide WhatsApp">Show/Hide WhatsApp</button>
+                <button id="toggle-whatsapp-button" class="secondary-button" title="${t('showHideWhatsApp')}">${t('showHideWhatsApp')}</button>
             </div>
             <div style="display: flex; gap: 10px; margin-top: 20px;">
-                <button id="back-to-dashboard-btn" class="secondary-button" style="flex: 1;">← Back to Dashboard</button>
-                <button id="save-delivery-settings-button" class="primary-button" style="flex: 2;">Save Settings</button>
+                <button id="back-to-dashboard-btn" class="secondary-button" style="flex: 1;">${t('backToDashboard')}</button>
+                <button id="save-delivery-settings-button" class="primary-button" style="flex: 2;">${t('saveSettings')}</button>
             </div>
         </div>
     `;
@@ -152,6 +282,36 @@ function renderDeliverySetup(isInitialSetup = true) {
     document.getElementById('toggle-whatsapp-button').addEventListener('click', () => {
         window.uiApi.sendData('ui:toggle-whatsapp-window');
     });
+
+    // Theme toggle
+    const themeLightBtn = document.getElementById('theme-light-btn');
+    const themeDarkBtn = document.getElementById('theme-dark-btn');
+    function setThemeActive(theme) {
+        applyTheme(theme);
+        if (themeLightBtn) {
+            themeLightBtn.classList.toggle('active', theme === 'light');
+            themeLightBtn.style.background = theme === 'light' ? 'var(--secondary-bg)' : 'transparent';
+        }
+        if (themeDarkBtn) {
+            themeDarkBtn.classList.toggle('active', theme === 'dark');
+            themeDarkBtn.style.background = theme === 'dark' ? 'var(--secondary-bg)' : 'transparent';
+        }
+        window.uiApi.sendData('ui:save-theme', theme);
+    }
+    themeLightBtn && themeLightBtn.addEventListener('click', () => setThemeActive('light'));
+    themeDarkBtn && themeDarkBtn.addEventListener('click', () => setThemeActive('dark'));
+
+    // Language toggle
+    const langEnBtn = document.getElementById('lang-en-btn');
+    const langHeBtn = document.getElementById('lang-he-btn');
+    function setLanguageActive(lang) {
+        applyLanguage(lang);
+        if (langEnBtn) { langEnBtn.classList.toggle('active', lang === 'en'); langEnBtn.style.background = lang === 'en' ? 'var(--secondary-bg)' : 'transparent'; }
+        if (langHeBtn) { langHeBtn.classList.toggle('active', lang === 'he'); langHeBtn.style.background = lang === 'he' ? 'var(--secondary-bg)' : 'transparent'; }
+        window.uiApi.sendData('ui:save-language', lang);
+    }
+    langEnBtn && langEnBtn.addEventListener('click', () => setLanguageActive('en'));
+    langHeBtn && langHeBtn.addEventListener('click', () => setLanguageActive('he'));
     
     // Load existing phone number if editing
     if (!isInitialSetup) {
@@ -163,7 +323,7 @@ function renderDeliverySetup(isInitialSetup = true) {
         const recipientPhoneNumber = document.getElementById('recipient-phone-number').value.trim();
         
         if (!recipientPhoneNumber) {
-            alert('Please enter your phone number.');
+            alert(t('pleaseEnterPhone'));
             return;
         }
 
@@ -183,7 +343,7 @@ function renderDeliverySetup(isInitialSetup = true) {
 
         // Send data to main process
         window.uiApi.sendData('ui:save-delivery-settings', settings);
-        statusMessage.textContent = 'Settings saved.';
+        statusMessage.textContent = t('settingsSaved');
         statusMessage.style.color = 'green';
         
         setTimeout(() => {
@@ -233,16 +393,12 @@ function renderChatSelection(chatList) {
     if (!chatList || chatList.length === 0) {
         mainSetupDiv.innerHTML = `
             <div class="status-box">
-                <h2>❌ No Chats Found</h2>
-                <p>
-                    Please ensure you are logged into WhatsApp Web in the secondary window. 
-                    If this is a new login, please wait for the chat list to fully load and try again.
-                </p>
-                
+                <h2>${t('noChatsFoundEmoji')}</h2>
+                <p>${t('ensureLoggedIn')}</p>
                 <div style="margin-top: 20px; display: flex; gap: 10px;">
-                    <button onclick="window.uiApi.sendData('ui:toggle-whatsapp-window')" class="secondary-button">Show WhatsApp Window</button>
-                    <button id="retry-chat-list" class="primary-button">Retry Finding Chats</button>
-                    ${isSetupComplete ? '<button id="back-to-dashboard-if-setup" class="secondary-button">Back to Dashboard</button>' : ''}
+                    <button onclick="window.uiApi.sendData('ui:toggle-whatsapp-window')" class="secondary-button">${t('showWhatsAppWindow')}</button>
+                    <button id="retry-chat-list" class="primary-button">${t('retryFindingChats')}</button>
+                    ${isSetupComplete ? `<button id="back-to-dashboard-if-setup" class="secondary-button">${t('backToDashboardShort')}</button>` : ''}
                 </div>
             </div>
         `;
@@ -263,15 +419,15 @@ function renderChatSelection(chatList) {
 
     mainSetupDiv.innerHTML = `
         <div class="setup-header">
-            <h2>Select Chats for Daily Brief</h2>
-            ${isSetupComplete ? '<button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>' : ''}
+            <h2>${t('selectChatsDailyBrief')}</h2>
+            ${isSetupComplete ? `<button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>` : ''}
         </div>
         <p>Click on the chats you want to schedule for daily brief. Selected chats have a green background. Unselecting a chat will remove its schedule.</p>
         <div style="margin: 15px 0;">
-            <input type="text" id="chat-search-input" placeholder="🔍 Search chats..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+            <input type="text" id="chat-search-input" placeholder="${t('searchChats')}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
         </div>
         <div id="chat-list-container" class="chat-selection-container"></div>
-        <button id="next-button" class="primary-button" ${selectedChatNames.size === 0 ? 'disabled' : ''}>Next: Configure Schedules</button>
+        <button id="next-button" class="primary-button" ${selectedChatNames.size === 0 ? 'disabled' : ''}>${t('nextConfigureSchedules')}</button>
     `;
     
     const container = document.getElementById('chat-list-container');
@@ -288,7 +444,7 @@ function renderChatSelection(chatList) {
         const filteredChats = filterText ? allChats.filter(name => name.toLowerCase().includes(filterLower)) : allChats;
         
         if (filteredChats.length === 0) {
-            container.innerHTML = '<p style="color: #666; padding: 20px; text-align: center;">No chats match your search.</p>';
+            container.innerHTML = `<p style="color: var(--muted-color); padding: 20px; text-align: center;">${t('noChatsMatchSearch')}</p>`;
             return;
         }
         
@@ -366,21 +522,21 @@ function renderScheduling(chatsToSchedule) {
 
     mainSetupDiv.innerHTML = `
         <div class="setup-header">
-            <h2>Set Daily Brief Schedules</h2>
-            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+            <h2>${t('setDailyBriefSchedules')}</h2>
+            <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
         </div>
         <p>Set the time for the daily brief to be generated for each chat.</p>
         <div id="schedule-container"></div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="back-button" class="secondary-button" style="flex: 1;">← Back to Dashboard</button>
-            <button id="save-schedules-button" class="primary-button" style="flex: 1;">Save & Start Automation</button>
+            <button id="back-button" class="secondary-button" style="flex: 1;">${t('backToDashboard')}</button>
+            <button id="save-schedules-button" class="primary-button" style="flex: 1;">${t('saveStartAutomation')}</button>
         </div>
     `;
     
     const container = document.getElementById('schedule-container');
     
     if (scheduledChats.length === 0) {
-        container.innerHTML = '<p style="color: #666; padding: 20px;">No chats to schedule. Please go back and select chats.</p>';
+        container.innerHTML = `<p style="color: var(--muted-color); padding: 20px;">${t('noChatsToSchedule')}</p>`;
         return;
     }
 
@@ -464,12 +620,12 @@ function editSingleChatSchedule(chatName) {
     let chat = { ...chatToEdit }; 
 
     mainSetupDiv.innerHTML = `
-        <h2>✏️ Edit Schedule for: ${chatName}</h2>
+        <h2>${t('editScheduleFor')} ${chatName}</h2>
         <p>Adjust the time for the daily brief for this chat.</p>
         <div id="schedule-container"></div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="back-button" class="secondary-button" style="flex: 1;">← Back to Dashboard</button>
-            <button id="save-schedules-button" class="primary-button" style="flex: 1;">Save Schedule</button>
+            <button id="back-button" class="secondary-button" style="flex: 1;">${t('backToDashboard')}</button>
+            <button id="save-schedules-button" class="primary-button" style="flex: 1;">${t('saveSchedule')}</button>
         </div>
     `;
 
@@ -549,17 +705,14 @@ function renderScheduledMessageChatSelection(chatList) {
     
     if (!chatList || chatList.length === 0) {
         mainSetupDiv.innerHTML = `
-            <div class="status-box">
-                <h2>❌ No Chats Found</h2>
-                <p>
-                    Please ensure you are logged into WhatsApp Web in the secondary window. 
-                    If this is a new login, please wait for the chat list to fully load and try again.
-                </p>
-                
-                <div style="margin-top: 20px; display: flex; gap: 10px;">
-                    <button onclick="window.uiApi.sendData('ui:toggle-whatsapp-window')" class="secondary-button">Show WhatsApp Window</button>
-                    <button id="retry-chat-list" class="primary-button">Retry Finding Chats</button>
-                    <button id="back-to-dashboard-btn" class="secondary-button">Back to Dashboard</button>
+            <div class="status-box card">
+                <div class="empty-state-icon" style="font-size: 56px; margin-bottom: 16px;">💬</div>
+                <h2>${t('noChatsFound')}</h2>
+                <p class="status-message">${t('ensureLoggedIn')}</p>
+                <div style="margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button onclick="window.uiApi.sendData('ui:toggle-whatsapp-window')" class="secondary-button">${t('showWhatsAppWindow')}</button>
+                    <button id="retry-chat-list" class="primary-button">${t('retryFindingChats')}</button>
+                    <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboardShort')}</button>
                 </div>
             </div>
         `;
@@ -577,19 +730,19 @@ function renderScheduledMessageChatSelection(chatList) {
     }
 
     mainSetupDiv.innerHTML = `
-        <div class="setup-header">
-            <h2>Choose to who you want to send the message</h2>
-            <div style="display: flex; gap: 10px;">
-                <button id="refresh-chat-list-message-btn" class="secondary-button">Refresh chats</button>
-                <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+        <div class="chat-selection-header">
+            <h2>${t('chooseWhoSendMessage')}</h2>
+            <div class="chat-selection-buttons">
+                <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
+                <button id="refresh-chat-list-message-btn" class="secondary-button">${t('refreshChats')}</button>
             </div>
         </div>
         <p>Click on the chat you want to send a scheduled message to.</p>
         <div style="margin: 15px 0;">
-            <input type="text" id="chat-search-input" placeholder="🔍 Search chats..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+            <input type="text" id="chat-search-input" placeholder="${t('searchChats')}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
         </div>
         <div id="chat-list-container" class="chat-selection-container"></div>
-        <button id="next-button" class="primary-button" disabled>Next: Configure when to send the message</button>
+        <button id="next-button" class="primary-button" disabled>${t('nextConfigureWhen')}</button>
     `;
     
     const container = document.getElementById('chat-list-container');
@@ -605,7 +758,7 @@ function renderScheduledMessageChatSelection(chatList) {
         const filteredChats = filterText ? allChats.filter(name => name.toLowerCase().includes(filterLower)) : allChats;
         
         if (filteredChats.length === 0) {
-            container.innerHTML = '<p style="color: #666; padding: 20px; text-align: center;">No chats match your search.</p>';
+            container.innerHTML = `<p style="color: var(--muted-color); padding: 20px; text-align: center;">${t('noChatsMatchSearch')}</p>`;
             return;
         }
         
@@ -665,11 +818,11 @@ function renderScheduledMessageChatSelection(chatList) {
 // --- 6.6 UI Step - Group Summarization Flow ---
 
 const SUMMARY_CATEGORIES = [
-    { key: 'tldr', label: 'Summary' },
-    { key: 'tasks', label: 'Tasks' },
-    { key: 'dates', label: 'Dates' },
-    { key: 'decisions', label: 'Decisions' },
-    { key: 'updates', label: 'Critical Updates' }
+    { key: 'tldr', labelKey: 'categorySummary' },
+    { key: 'tasks', labelKey: 'categoryTasks' },
+    { key: 'dates', labelKey: 'categoryDates' },
+    { key: 'decisions', labelKey: 'categoryDecisions' },
+    { key: 'updates', labelKey: 'categoryUpdates' }
 ];
 
 function renderSummaryLoadingState() {
@@ -677,12 +830,12 @@ function renderSummaryLoadingState() {
     if (!mainSetupDiv) return;
     mainSetupDiv.innerHTML = `
         <div class="status-box">
-            <h2>Generating Summary...</h2>
-            <p>Reading messages and summarizing. This may take a moment.</p>
+            <h2>${t('generatingSummary')}</h2>
+            <p>${t('readingSummarizing')}</p>
             <div class="progress-bar-container">
                 <div class="progress-bar" id="summary-progress-bar" style="width: 0%;"></div>
             </div>
-            <p class="loading-text" id="summary-loading-text">Initializing...</p>
+            <p class="loading-text" id="summary-loading-text">${t('initializing')}</p>
         </div>
     `;
     let p = 0;
@@ -694,9 +847,9 @@ function renderSummaryLoadingState() {
             if (p > 90) p = 90;
             if (bar) bar.style.width = p + '%';
             if (text) {
-                if (p < 30) text.textContent = 'Opening chat...';
-                else if (p < 60) text.textContent = 'Reading messages...';
-                else text.textContent = 'Summarizing...';
+                if (p < 30) text.textContent = t('openingChat');
+                else if (p < 60) text.textContent = t('readingMessages');
+                else text.textContent = t('summarizing');
             }
         }
     }, 200);
@@ -710,12 +863,13 @@ function renderSummaryChatSelection(chatList) {
     selectedChatNames.clear();
     if (!chatList || chatList.length === 0) {
         mainSetupDiv.innerHTML = `
-            <div class="status-box">
-                <h2>❌ No Chats Found</h2>
-                <p>Please ensure you are logged into WhatsApp Web and try again.</p>
-                <div style="margin-top: 20px; display: flex; gap: 10px;">
-                    <button id="retry-summary-chat-list" class="primary-button">Retry Finding Chats</button>
-                    <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+            <div class="status-box card">
+                <div class="empty-state-icon" style="font-size: 56px; margin-bottom: 16px;">💬</div>
+                <h2>${t('noChatsFound')}</h2>
+                <p class="status-message">${t('ensureLoggedIn')}</p>
+                <div style="margin-top: 24px; display: flex; gap: 12px;">
+                    <button id="retry-summary-chat-list" class="primary-button">${t('retryFindingChats')}</button>
+                    <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
                 </div>
             </div>
         `;
@@ -729,19 +883,19 @@ function renderSummaryChatSelection(chatList) {
         return;
     }
     mainSetupDiv.innerHTML = `
-        <div class="setup-header">
-            <h2>Choose a chat to summarize</h2>
-            <div style="display: flex; gap: 10px;">
-                <button id="refresh-chat-list-summary-btn" class="secondary-button">Refresh chats</button>
-                <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+        <div class="chat-selection-header">
+            <h2>${t('chooseChatToSummarize')}</h2>
+            <div class="chat-selection-buttons">
+                <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
+                <button id="refresh-chat-list-summary-btn" class="secondary-button">${t('refreshChats')}</button>
             </div>
         </div>
         <p>Click on the chat you want to summarize.</p>
         <div style="margin: 15px 0;">
-            <input type="text" id="chat-search-input" placeholder="🔍 Search chats..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+            <input type="text" id="chat-search-input" placeholder="${t('searchChats')}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
         </div>
         <div id="chat-list-container" class="chat-selection-container"></div>
-        <button id="next-summary-button" class="primary-button" disabled>Next: Choose summary options</button>
+        <button id="next-summary-button" class="primary-button" disabled>${t('nextSummaryOptions')}</button>
     `;
     const container = document.getElementById('chat-list-container');
     const nextButton = document.getElementById('next-summary-button');
@@ -753,7 +907,7 @@ function renderSummaryChatSelection(chatList) {
         const filterLower = (filterText || '').toLowerCase().trim();
         const filtered = filterLower ? allChats.filter(n => n.toLowerCase().includes(filterLower)) : allChats;
         if (filtered.length === 0) {
-            container.innerHTML = '<p style="color: #666; padding: 20px; text-align: center;">No chats match your search.</p>';
+            container.innerHTML = `<p style="color: var(--muted-color); padding: 20px; text-align: center;">${t('noChatsMatchSearch')}</p>`;
             return;
         }
         filtered.forEach(name => {
@@ -793,21 +947,23 @@ function renderSummaryCategorySelection(chatName) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
     mainSetupDiv.innerHTML = `
-        <div class="setup-header">
-            <h2>Summary options for: ${chatName}</h2>
-            <button id="back-summary-categories-btn" class="secondary-button">← Back</button>
+        <div class="chat-selection-header">
+            <h2>${t('summaryOptionsFor')} ${chatName}</h2>
+            <div class="chat-selection-buttons">
+                <button id="back-summary-categories-btn" class="secondary-button">${t('back')}</button>
+            </div>
         </div>
         <p>Select the sections to include in the summary. Leave all unchecked for full summary.</p>
         <div class="summary-categories-list" style="margin: 20px 0;">
             ${SUMMARY_CATEGORIES.map(c => `
-                <label class="summary-category-item" style="display: flex; align-items: center; gap: 10px; padding: 10px 0;">
+                <label class="summary-category-item">
                     <input type="checkbox" class="summary-category-checkbox" data-key="${c.key}">
-                    <span>${c.label}</span>
+                    <span>${t(c.labelKey)}</span>
                 </label>
             `).join('')}
         </div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="generate-summary-btn" class="primary-button">Generate Summary</button>
+            <button id="generate-summary-btn" class="primary-button">${t('generateSummary')}</button>
         </div>
     `;
     document.getElementById('back-summary-categories-btn').addEventListener('click', () => {
@@ -832,21 +988,23 @@ function renderSummaryResult(summary, chatName) {
     }
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
-    const displaySummary = (summary && typeof summary === 'string') ? summary : (summary || 'No summary generated.');
+    const rawSummary = (summary && typeof summary === 'string') ? summary : (summary || '');
+    const isNoMessagesFromBackend = rawSummary === 'No messages found for the selected chat.';
+    const displaySummary = isNoMessagesFromBackend ? t('noMessagesForChat') : (rawSummary || t('noSummaryGenerated'));
     const isHebrew = /[\u0590-\u05FF]/.test(displaySummary);
     const summaryContentStyle = isHebrew ? 'text-align: right; direction: rtl;' : 'text-align: left;';
     mainSetupDiv.innerHTML = `
         <div class="status-box">
-            <h2>Summary: ${chatName || 'Chat'}</h2>
-            <div class="summary-result-actions" style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <button id="copy-summary-btn" class="primary-button">Copy to clipboard</button>
-                <button id="back-after-summary-btn" class="secondary-button">← Back to Dashboard</button>
+            <h2>${t('summary')}: ${chatName || t('chat')}</h2>
+            <div class="summary-result-actions" style="display: flex; gap: 10px; margin-bottom: 15px; justify-content: flex-start;">
+                <button id="back-after-summary-btn" class="secondary-button">${t('backToDashboard')}</button>
+                <button id="copy-summary-btn" class="primary-button">${t('copyToClipboard')}</button>
             </div>
-            <div id="summary-result-content" class="summary-result-content" style="white-space: pre-wrap; max-height: 400px; overflow-y: auto; padding: 15px; background: #f8f9fa; border-radius: 8px; ${summaryContentStyle}">${displaySummary.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+            <div id="summary-result-content" class="summary-result-content" style="white-space: pre-wrap; max-height: 400px; overflow-y: auto; padding: 15px; border-radius: 8px; ${summaryContentStyle}">${displaySummary.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
         </div>
     `;
     document.getElementById('copy-summary-btn').addEventListener('click', () => {
-        navigator.clipboard.writeText(displaySummary).then(() => alert('Copied to clipboard.')).catch(() => alert('Copy failed.'));
+        navigator.clipboard.writeText(displaySummary).then(() => alert(t('copiedToClipboard'))).catch(() => alert(t('copyFailed')));
     });
     document.getElementById('back-after-summary-btn').addEventListener('click', () => {
         window.uiApi.sendData('ui:request-scheduled-messages');
@@ -865,24 +1023,26 @@ function renderScheduledMessageTimeSelection(chatName, existingDate = null, exis
     const defaultTime = existingTime || `${defaultHour}:${defaultMinute}`;
 
     mainSetupDiv.innerHTML = `
-        <div class="setup-header">
-            <h2>Configure when to send the message</h2>
-            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+        <div class="chat-selection-header">
+            <h2>${t('configureWhenSend')}</h2>
+            <div class="chat-selection-buttons">
+                <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
+            </div>
         </div>
-        <p>Select the date and time when you want to send the message to <strong>${chatName}</strong>.</p>
+        <p>${t('selectDateTime')} <strong>${chatName}</strong>.</p>
         <div id="time-selection-container" style="margin: 20px 0;">
             <div style="margin-bottom: 15px;">
-                <label for="message-date" style="display: block; margin-bottom: 5px; font-weight: bold;">Date:</label>
+                <label for="message-date" style="display: block; margin-bottom: 5px; font-weight: bold;">${t('date')}</label>
                 <input type="date" id="message-date" value="${defaultDate}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
             </div>
             <div style="margin-bottom: 15px;">
-                <label for="message-time" style="display: block; margin-bottom: 5px; font-weight: bold;">Time:</label>
+                <label for="message-time" style="display: block; margin-bottom: 5px; font-weight: bold;">${t('time')}</label>
                 <input type="time" id="message-time" value="${defaultTime}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
             </div>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="back-button-bottom" class="secondary-button" style="flex: 1;">← Back</button>
-            <button id="next-button" class="primary-button" style="flex: 1;">Next</button>
+            <button id="back-button-bottom" class="secondary-button" style="flex: 1;">${t('back')}</button>
+            <button id="next-button" class="primary-button" style="flex: 1;">${t('next')}</button>
         </div>
     `;
 
@@ -935,17 +1095,19 @@ function renderScheduledMessageInput(chatName, date, time, existingMessage = nul
     if (!mainSetupDiv) return;
 
     mainSetupDiv.innerHTML = `
-        <div class="setup-header">
-            <h2>Type your message</h2>
-            <button id="back-to-dashboard-btn" class="secondary-button">← Back to Dashboard</button>
+        <div class="chat-selection-header">
+            <h2>${t('typeYourMessage')}</h2>
+            <div class="chat-selection-buttons">
+                <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
+            </div>
         </div>
-        <p>Enter the message you want to send to <strong>${chatName}</strong> on ${date} at ${time}.</p>
+        <p>${t('enterMessageSendTo')} <strong>${chatName}</strong> on ${date} at ${time}.</p>
         <div style="margin: 20px 0;">
-            <textarea id="message-text" placeholder="Type your message here..." style="width: 100%; min-height: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: inherit; resize: vertical;">${existingMessage || ''}</textarea>
+            <textarea id="message-text" placeholder="${t('typeMessagePlaceholder')}" style="width: 100%; min-height: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: inherit; resize: vertical;">${existingMessage || ''}</textarea>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="back-button-bottom" class="secondary-button" style="flex: 1;">← Back</button>
-            <button id="save-button" class="primary-button" style="flex: 1;">Save</button>
+            <button id="back-button-bottom" class="secondary-button" style="flex: 1;">${t('back')}</button>
+            <button id="save-button" class="primary-button" style="flex: 1;">${t('save')}</button>
         </div>
     `;
 
@@ -1015,29 +1177,28 @@ function renderDashboard(currentSchedules) {
     const statusLedClass = whatsappStatus === 'connected' ? 'status-led-connected' : (whatsappStatus === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting');
     mainSetupDiv.innerHTML = `
         <div class="dashboard-header">
+            <div id="dashboard-controls" class="dashboard-controls-inline">
+                <button id="add-scheduled-message-button" class="primary-button"><span class="btn-icon">🕐</span> ${t('scheduleMessage')}</button>
+                <button id="summarize-chat-button" class="primary-button"><span class="btn-icon">✨</span> ${t('summarize')}</button>
+            </div>
             <div class="dashboard-header-right">
                 <span id="status-led" class="status-led ${statusLedClass}" aria-hidden="true"></span>
-                <button id="settings-icon-button" class="settings-icon" title="Settings">⚙️</button>
+                <button id="settings-icon-button" class="settings-icon" title="${t('settings')}">⚙️</button>
             </div>
         </div>
-        
-        <div id="dashboard-controls">
-            <button id="add-scheduled-message-button" class="primary-button" style="flex: 1;">+ Add a scheduled message</button>
-            <button id="summarize-chat-button" class="primary-button" style="flex: 1;">Summarize Group/Chat</button>
-        </div>
 
-        <div id="scheduled-messages-container">
-            <h3>Scheduled Messages:</h3>
+        <div class="dashboard-card" id="scheduled-messages-card">
+            <h3 class="card-title">${t('scheduledMessages')}</h3>
             <ul id="scheduled-messages-ul"></ul>
         </div>
     `;
     
     updateWhatsAppStatus(whatsappStatus);
 
-    // Populate scheduled messages list
+    // Populate scheduled messages list (card + empty state)
     const messagesUl = document.getElementById('scheduled-messages-ul');
     if (existingScheduledMessages.length === 0) {
-        messagesUl.innerHTML = '<li><p class="status-message">No messages are currently scheduled.</p></li>';
+        messagesUl.innerHTML = `<li class="empty-state" style="list-style: none;"><p class="status-message">${t('noMessagesScheduled')}</p></li>`;
     } else {
         messagesUl.innerHTML = '';
         existingScheduledMessages.forEach((msg, index) => {
@@ -1048,12 +1209,12 @@ function renderDashboard(currentSchedules) {
             li.innerHTML = `
                 <div class="schedule-item-dashboard">
                     <div style="flex: 1;">
-                        <strong>${msg.chatName}</strong> <span style="color: #666; font-weight: normal;">${dateTime}</span>
-                        <p style="color: #888; font-size: 12px; margin: 5px 0 0 0;">${messagePreview}</p>
+                        <strong>${msg.chatName}</strong> <span class="schedule-meta" style="color: var(--muted-color); font-weight: normal;">${dateTime}</span>
+                        <p class="schedule-preview" style="color: var(--muted-color-6); font-size: 12px; margin: 5px 0 0 0;">${messagePreview}</p>
                     </div>
                     <div style="display: flex; gap: 5px;">
-                        <button class="edit-message-button secondary-button" data-message-index="${index}" title="Edit message">✏️</button>
-                        <button class="delete-message-button secondary-button" data-message-index="${index}" title="Delete message">🗑️</button>
+                        <button class="edit-message-button secondary-button" data-message-index="${index}" title="${t('editMessage')}">✏️</button>
+                        <button class="delete-message-button secondary-button" data-message-index="${index}" title="${t('deleteMessage')}">🗑️</button>
                     </div>
                 </div>
             `;
@@ -1089,7 +1250,7 @@ function renderDashboard(currentSchedules) {
         button.addEventListener('click', (e) => {
             const index = parseInt(e.currentTarget.dataset.messageIndex);
             const message = existingScheduledMessages[index];
-            if (message && confirm(`Are you sure you want to delete the scheduled message to "${message.chatName}"?`)) {
+            if (message && confirm(`${t('confirmDeleteMessage')} "${message.chatName}"?`)) {
                 window.uiApi.sendData('ui:delete-scheduled-message', index);
             }
         });
@@ -1143,6 +1304,28 @@ function initializeIPCListeners() {
         if (phoneInput) {
             phoneInput.value = settings.recipientPhoneNumber || '';
         }
+        const theme = (settings && (settings.theme === 'light' || settings.theme === 'dark')) ? settings.theme : 'dark';
+        applyTheme(theme);
+        const lang = (settings && (settings.language === 'en' || settings.language === 'he')) ? settings.language : 'en';
+        applyLanguage(lang);
+        const themeLightBtn = document.getElementById('theme-light-btn');
+        const themeDarkBtn = document.getElementById('theme-dark-btn');
+        if (themeLightBtn) { themeLightBtn.classList.toggle('active', theme === 'light'); themeLightBtn.style.background = theme === 'light' ? 'var(--secondary-bg)' : 'transparent'; }
+        if (themeDarkBtn) { themeDarkBtn.classList.toggle('active', theme === 'dark'); themeDarkBtn.style.background = theme === 'dark' ? 'var(--secondary-bg)' : 'transparent'; }
+        const langEnBtn = document.getElementById('lang-en-btn');
+        const langHeBtn = document.getElementById('lang-he-btn');
+        if (langEnBtn) { langEnBtn.classList.toggle('active', lang === 'en'); langEnBtn.style.background = lang === 'en' ? 'var(--secondary-bg)' : 'transparent'; }
+        if (langHeBtn) { langHeBtn.classList.toggle('active', lang === 'he'); langHeBtn.style.background = lang === 'he' ? 'var(--secondary-bg)' : 'transparent'; }
+    });
+
+    // Theme (apply on load and when changed from settings)
+    window.uiApi.receiveCommand('main:theme', (theme) => {
+        applyTheme(theme);
+    });
+
+    // Language (apply on load and when changed from settings)
+    window.uiApi.receiveCommand('main:language', (lang) => {
+        applyLanguage(lang);
     });
     
     // 9. Receive WhatsApp connection status updates
@@ -1201,9 +1384,11 @@ function initializeIPCListeners() {
             loadingText.textContent = 'Complete!';
         }
         
-        // Render immediately (cached list) or after refresh (loading state was shown)
+        // Only show chat selection if user hasn't moved on (e.g. to date/time screen)
         setTimeout(() => {
-            renderScheduledMessageChatSelection(chatList);
+            if (!document.getElementById('time-selection-container')) {
+                renderScheduledMessageChatSelection(chatList);
+            }
         }, 0);
     });
 
@@ -1218,7 +1403,13 @@ function initializeIPCListeners() {
         if (progressBar) progressBar.style.width = '100%';
         if (loadingText) loadingText.textContent = 'Complete!';
         setTimeout(() => {
-            renderSummaryChatSelection(chatList);
+            // Don't overwrite when user is on summary options, loading, or result screen
+            const onSummaryOptions = document.getElementById('generate-summary-btn');
+            const onSummaryResult = document.getElementById('summary-result-content');
+            const onSummaryLoading = document.getElementById('summary-progress-bar');
+            if (!onSummaryOptions && !onSummaryResult && !onSummaryLoading) {
+                renderSummaryChatSelection(chatList);
+            }
         }, 0);
     });
 

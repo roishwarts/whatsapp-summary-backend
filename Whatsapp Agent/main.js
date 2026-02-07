@@ -31,6 +31,8 @@ const store = new Store({
             emailPort: 587,
             emailUser: null,
             emailPass: null,
+            theme: 'dark',
+            language: 'en',
         },
         scheduledChats: [],
         scheduledMessages: [],
@@ -2187,7 +2189,7 @@ function createUIWindow() {
     const isSetupComplete = store.get('globalSettings.isSetupComplete');
     
     uiWindow = new BrowserWindow({
-        width: 400, height: 600, title: 'Settings',
+        width: 600, height: 600, title: 'Settings',
         show: true, // Always show UI window
         center: true,
         webPreferences: {
@@ -2535,6 +2537,8 @@ function updateChatLastRunTime() {
 // --- 6. IPC Listeners ---
 ipcMain.on('ui:request-setup-complete-status', (event) => {
     event.sender.send('main:setup-complete-status', store.get('globalSettings.isSetupComplete'));
+    event.sender.send('main:theme', store.get('globalSettings.theme') || 'dark');
+    event.sender.send('main:language', store.get('globalSettings.language') || 'en');
 });
 
 ipcMain.on('ui:save-api-key', (event) => {
@@ -2875,6 +2879,20 @@ ipcMain.on('ui:request-delivery-settings', (event) => {
     event.sender.send('main:render-delivery-settings', settings);
 });
 
+ipcMain.on('ui:save-theme', (event, theme) => {
+    if (theme === 'light' || theme === 'dark') {
+        store.set('globalSettings.theme', theme);
+        event.sender.send('main:theme', theme);
+    }
+});
+
+ipcMain.on('ui:save-language', (event, language) => {
+    if (language === 'en' || language === 'he') {
+        store.set('globalSettings.language', language);
+        event.sender.send('main:language', language);
+    }
+});
+
 ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) => {
     if (success) {
         console.log(`[Automation] Scheduled message sent successfully to ${chatName}`);
@@ -3025,6 +3043,20 @@ ipcMain.on('whatsapp:response-messages', async (event, messages) => {
         // Send notification to user if this is an on-demand summary (from Pusher command)
         if (currentlyRunningChat.frequency === 'on-demand' && currentlyRunningChat._onDemandSender) {
             await sendNoMessagesNotification(currentlyRunningChat.name, currentlyRunningChat._onDemandSender);
+        }
+        
+        // When triggered from UI (no _onDemandSender), show summary screen with "no messages" message
+        if (currentlyRunningChat.frequency === 'on-demand' && !currentlyRunningChat._onDemandSender && isUIWindowAvailable()) {
+            try {
+                uiWindow.webContents.send('main:render-summary', {
+                    chatName: currentlyRunningChat.name,
+                    summary: 'No messages found for the selected chat.',
+                    frequency: 'on-demand',
+                    time: null
+                });
+            } catch (error) {
+                console.error('[IPC] Error sending no-messages summary to UI:', error);
+            }
         }
         
         // Update UI status
