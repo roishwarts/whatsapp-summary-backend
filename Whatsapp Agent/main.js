@@ -2730,6 +2730,12 @@ ipcMain.on('ui:request-summary-from-ui', (event, payload) => {
     triggerSummaryWithOptions(null, chatName, summaryComponents && summaryComponents.length > 0 ? summaryComponents : null);
 });
 
+ipcMain.on('ui:request-whatsapp-visibility', () => {
+    if (!isUIWindowAvailable() || !uiWindow) return;
+    const visible = isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.isVisible();
+    uiWindow.webContents.send('main:whatsapp-window-visible', visible);
+});
+
 ipcMain.on('ui:toggle-whatsapp-window', async () => {
     const windowReady = await ensureWhatsAppWindowExists();
     if (!windowReady || !isWhatsAppWindowAvailable()) {
@@ -2745,6 +2751,9 @@ ipcMain.on('ui:toggle-whatsapp-window', async () => {
             } else {
                 whatsappWindow.show();
                 whatsappWindow.focus();
+            }
+            if (isUIWindowAvailable() && uiWindow) {
+                uiWindow.webContents.send('main:whatsapp-window-visible', whatsappWindow.isVisible());
             }
         }
     } catch (error) {

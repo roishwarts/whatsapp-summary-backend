@@ -546,13 +546,27 @@
         #main-setup-div {
             animation: fadeIn 0.3s ease;
         }
-        /* RTL (Hebrew) */
+        /* RTL (Hebrew) - summary options on the right side */
         [dir="rtl"] .summary-category-item {
             flex-direction: row-reverse;
+            text-align: right;
+            width: fit-content;
+            align-self: flex-start; /* In RTL, flex-start = right side */
         }
-        [dir="rtl"] .chat-selection-buttons,
+        [dir="rtl"] .summary-categories-list {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start; /* In RTL, flex-start = right side */
+            text-align: right;
+        }
         [dir="rtl"] .dashboard-header {
             flex-direction: row-reverse;
+        }
+        /* Keep "Back to Dashboard" as the rightmost button in RTL */
+        [dir="rtl"] .chat-selection-buttons,
+        [dir="rtl"] .summary-result-actions,
+        [dir="rtl"] .settings-actions {
+            flex-direction: row;
         }
         @keyframes fadeIn {
             from { opacity: 0.97; }

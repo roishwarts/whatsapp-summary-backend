@@ -10,6 +10,9 @@ let existingScheduledChats = [];
 let existingScheduledMessages = [];
 let isTestRunning = false;
 let summaryFlowChatList = [];
+let lastChatListForMessage = [];
+/** True only while we requested the chat list for schedule-message flow and haven't received it yet. Prevents stray main:render-chat-list-for-message from overwriting other screens. */
+let waitingForChatListForMessage = false;
 
 // --- i18n ---
 const TRANSLATIONS = {
@@ -52,6 +55,7 @@ const TRANSLATIONS = {
     editScheduleFor: { en: '✏️ Edit Schedule for:', he: '✏️ ערוך זמנים עבור:' },
     saveSchedule: { en: 'Save Schedule', he: 'שמור זמנים' },
     chooseWhoSendMessage: { en: 'Choose to who you want to send the message', he: 'בחר למי לשלוח את ההודעה' },
+    scheduleMessageScreenTitle: { en: 'Choose who you want to send the message to and when it will be sent', he: 'בחר למי לשלוח את ההודעה ומתי לשלוח' },
     refreshChats: { en: 'Refresh chats', he: 'רענן צ\'אטים' },
     nextConfigureWhen: { en: 'Next: Configure when to send the message', he: 'הבא: הגדר מתי לשלוח את ההודעה' },
     chooseChatToSummarize: { en: 'Choose a chat to summarize', he: 'בחר צ\'אט לסכם' },
@@ -60,7 +64,7 @@ const TRANSLATIONS = {
     back: { en: '← Back', he: '← חזרה' },
     generateSummary: { en: 'Generate Summary', he: 'צור תקציר' },
     generatingSummary: { en: 'Generating Summary...', he: 'מייצר תקציר...' },
-    readingSummarizing: { en: 'Reading messages and summarizing. This may take a moment.', he: 'קורא הודעות ומסכם. זה עלול לקחת רגע.' },
+    readingSummarizing: { en: 'Reading messages and summarizing. This may take a moment.', he: 'קורא הודעות ומסכם. זה יקח כמה שניות...' },
     openingChat: { en: 'Opening chat...', he: 'פותח צ\'אט...' },
     readingMessages: { en: 'Reading messages...', he: 'קורא הודעות...' },
     summarizing: { en: 'Summarizing...', he: 'מסכם...' },
@@ -75,6 +79,8 @@ const TRANSLATIONS = {
     next: { en: 'Next', he: 'הבא' },
     typeYourMessage: { en: 'Type your message', he: 'הקלד את ההודעה' },
     enterMessageSendTo: { en: 'Enter the message you want to send to', he: 'הזן את ההודעה שברצונך לשלוח ל' },
+    messageWillBeSentTo: { en: 'The message will be sent to', he: 'ההודעה תישלח ל' },
+    messageSentToOnDateAtTime: { en: 'on {date} at {time}.', he: 'בתאריך {date} בשעה {time}.' },
     typeMessagePlaceholder: { en: 'Type your message here...', he: 'הקלד את ההודעה כאן...' },
     save: { en: 'Save', he: 'שמור' },
     scheduleMessage: { en: 'Schedule Message', he: 'תזמן הודעה' },
@@ -95,6 +101,11 @@ const TRANSLATIONS = {
     confirmDeleteMessage: { en: 'Are you sure you want to delete the scheduled message to', he: 'האם אתה בטוח שברצונך למחוק את ההודעה המתוזמנת ל' },
     copiedToClipboard: { en: 'Copied to clipboard.', he: 'הועתק ללוח.' },
     copyFailed: { en: 'Copy failed.', he: 'ההעתקה נכשלה.' },
+    clickChatSendMessage: { en: 'Click on the chat you want to send a scheduled message to.', he: 'לחץ על הצ\'אט שאליו תרצה לשלוח הודעה מתוזמנת.' },
+    clickChatSummarize: { en: 'Click on the chat you want to summarize.', he: 'לחץ על הצ\'אט שברצונך לסכם.' },
+    selectSectionsSummary: { en: 'Select the sections to include in the summary. Leave all unchecked for full summary.', he: 'בחר את הסעיפים לכלול בסיכום. השאר הכל לא מסומן לסיכום מלא.' },
+    showWhatsApp: { en: 'Show WhatsApp', he: 'הצג וואטסאפ' },
+    hideWhatsApp: { en: 'Hide WhatsApp', he: 'הסתר וואטסאפ' },
 };
 let currentLanguage = 'en';
 
@@ -235,6 +246,7 @@ function renderDeliverySetup(isInitialSetup = true) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
     
+    waitingForChatListForMessage = false;
     isTestRunning = false; 
 
     const currentTheme = getCurrentTheme();
@@ -261,9 +273,9 @@ function renderDeliverySetup(isInitialSetup = true) {
             </div>
             <div id="delivery-status-message" class="status-message" style="margin-top: 10px; color: red;"></div>
             <div class="settings-whatsapp-row">
-                <button id="toggle-whatsapp-button" class="secondary-button" title="${t('showHideWhatsApp')}">${t('showHideWhatsApp')}</button>
+                <button id="toggle-whatsapp-button" class="secondary-button" title="">${t('showWhatsApp')}</button>
             </div>
-            <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <div class="settings-actions" style="display: flex; gap: 10px; margin-top: 20px;">
                 <button id="back-to-dashboard-btn" class="secondary-button" style="flex: 1;">${t('backToDashboard')}</button>
                 <button id="save-delivery-settings-button" class="primary-button" style="flex: 2;">${t('saveSettings')}</button>
             </div>
@@ -279,9 +291,11 @@ function renderDeliverySetup(isInitialSetup = true) {
         renderDashboard(existingScheduledChats);
     });
 
-    document.getElementById('toggle-whatsapp-button').addEventListener('click', () => {
+    const toggleWhatsAppBtn = document.getElementById('toggle-whatsapp-button');
+    toggleWhatsAppBtn.addEventListener('click', () => {
         window.uiApi.sendData('ui:toggle-whatsapp-window');
     });
+    window.uiApi.sendData('ui:request-whatsapp-visibility');
 
     // Theme toggle
     const themeLightBtn = document.getElementById('theme-light-btn');
@@ -697,11 +711,18 @@ function editSingleChatSchedule(chatName) {
 
 // --- 6.5. UI Step - Scheduled Message Flow ---
 
-function renderScheduledMessageChatSelection(chatList) {
+function renderScheduledMessageChatSelection(chatList, preselect = {}) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
     
     selectedChatNames.clear();
+    lastChatListForMessage = chatList || [];
+
+    const now = new Date();
+    const defaultDate = preselect.preselectDate || now.toISOString().split('T')[0];
+    const defaultHour = preselect.preselectTime ? preselect.preselectTime.substring(0, 2) : String((now.getHours() + 1) % 24).padStart(2, '0');
+    const defaultMinute = preselect.preselectTime ? preselect.preselectTime.substring(3, 5) : String(now.getMinutes()).padStart(2, '0');
+    const defaultTime = preselect.preselectTime || `${defaultHour}:${defaultMinute}`;
     
     if (!chatList || chatList.length === 0) {
         mainSetupDiv.innerHTML = `
@@ -730,27 +751,38 @@ function renderScheduledMessageChatSelection(chatList) {
     }
 
     mainSetupDiv.innerHTML = `
-        <div class="chat-selection-header">
-            <h2>${t('chooseWhoSendMessage')}</h2>
+        <div class="chat-selection-header" style="margin-bottom: 10px;">
+            <h2>${t('scheduleMessageScreenTitle')}</h2>
             <div class="chat-selection-buttons">
                 <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
                 <button id="refresh-chat-list-message-btn" class="secondary-button">${t('refreshChats')}</button>
             </div>
         </div>
-        <p>Click on the chat you want to send a scheduled message to.</p>
-        <div style="margin: 15px 0;">
+        <div style="margin: 10px 0;">
             <input type="text" id="chat-search-input" placeholder="${t('searchChats')}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
         </div>
-        <div id="chat-list-container" class="chat-selection-container"></div>
-        <button id="next-button" class="primary-button" disabled>${t('nextConfigureWhen')}</button>
+        <div id="chat-list-container" class="chat-selection-container" style="max-height: 200px; overflow-y: auto; margin-bottom: 10px;"></div>
+        <div class="schedule-datetime-row" style="display: flex; gap: 12px; margin: 10px 0; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 0;">
+                <label for="message-date" style="display: block; margin-bottom: 5px; font-weight: 600;">${t('date')}</label>
+                <input type="date" id="message-date" value="${defaultDate}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+            </div>
+            <div style="flex: 1; min-width: 0;">
+                <label for="message-time" style="display: block; margin-bottom: 5px; font-weight: 600;">${t('time')}</label>
+                <input type="time" id="message-time" value="${defaultTime}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+            </div>
+        </div>
+        <button id="next-button" class="primary-button" disabled>${t('next')}</button>
     `;
     
     const container = document.getElementById('chat-list-container');
     const nextButton = document.getElementById('next-button');
     const searchInput = document.getElementById('chat-search-input');
+    const dateInput = document.getElementById('message-date');
+    const timeInput = document.getElementById('message-time');
     
     const allChats = [...chatList];
-    let selectedChatName = null;
+    let selectedChatName = preselect.preselectChat || null;
     
     function renderFilteredChats(filterText = '') {
         container.innerHTML = '';
@@ -790,20 +822,34 @@ function renderScheduledMessageChatSelection(chatList) {
     }
     
     renderFilteredChats();
+    nextButton.disabled = !selectedChatName;
     
     searchInput.addEventListener('input', (e) => {
         renderFilteredChats(e.target.value);
     });
 
     nextButton.addEventListener('click', () => {
-        if (selectedChatName) {
-            renderScheduledMessageTimeSelection(selectedChatName);
-        } else {
+        if (!selectedChatName) {
             alert('Please select a chat to send the message to.');
+            return;
         }
+        const selectedDate = dateInput.value;
+        const selectedTime = timeInput.value;
+        if (!selectedDate || !selectedTime) {
+            alert('Please select both date and time.');
+            return;
+        }
+        const selectedDateTime = new Date(`${selectedDate}T${selectedTime}`);
+        const now = new Date();
+        if (selectedDateTime <= now) {
+            alert('Please select a date and time in the future.');
+            return;
+        }
+        renderScheduledMessageInput(selectedChatName, selectedDate, selectedTime, preselect.existingMessage || null, preselect.editIndex ?? null);
     });
 
     document.getElementById('refresh-chat-list-message-btn').addEventListener('click', () => {
+        waitingForChatListForMessage = true;
         renderChatListLoadingState();
         window.uiApi.sendData('ui:refresh-chat-list-for-message');
     });
@@ -859,6 +905,7 @@ function renderSummaryLoadingState() {
 function renderSummaryChatSelection(chatList) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
+    waitingForChatListForMessage = false;
     summaryFlowChatList = chatList || [];
     selectedChatNames.clear();
     if (!chatList || chatList.length === 0) {
@@ -890,7 +937,6 @@ function renderSummaryChatSelection(chatList) {
                 <button id="refresh-chat-list-summary-btn" class="secondary-button">${t('refreshChats')}</button>
             </div>
         </div>
-        <p>Click on the chat you want to summarize.</p>
         <div style="margin: 15px 0;">
             <input type="text" id="chat-search-input" placeholder="${t('searchChats')}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
         </div>
@@ -953,7 +999,7 @@ function renderSummaryCategorySelection(chatName) {
                 <button id="back-summary-categories-btn" class="secondary-button">${t('back')}</button>
             </div>
         </div>
-        <p>Select the sections to include in the summary. Leave all unchecked for full summary.</p>
+        <p>${t('selectSectionsSummary')}</p>
         <div class="summary-categories-list" style="margin: 20px 0;">
             ${SUMMARY_CATEGORIES.map(c => `
                 <label class="summary-category-item">
@@ -1076,6 +1122,7 @@ function renderScheduledMessageTimeSelection(chatName, existingDate = null, exis
     
     // Back button - go to previous step (chat selection)
     backButtonBottom.addEventListener('click', () => {
+        waitingForChatListForMessage = true;
         renderChatListLoadingState();
         window.uiApi.sendData('ui:request-chat-list-for-message');
     });
@@ -1101,7 +1148,7 @@ function renderScheduledMessageInput(chatName, date, time, existingMessage = nul
                 <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
             </div>
         </div>
-        <p>${t('enterMessageSendTo')} <strong>${chatName}</strong> on ${date} at ${time}.</p>
+        <p>${t('messageWillBeSentTo')} <strong>${chatName}</strong> ${t('messageSentToOnDateAtTime').replace('{date}', date).replace('{time}', time)}</p>
         <div style="margin: 20px 0;">
             <textarea id="message-text" placeholder="${t('typeMessagePlaceholder')}" style="width: 100%; min-height: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: inherit; resize: vertical;">${existingMessage || ''}</textarea>
         </div>
@@ -1147,9 +1194,13 @@ function renderScheduledMessageInput(chatName, date, time, existingMessage = nul
 
     saveButton.addEventListener('click', handleSave);
     
-    // Back button - go to previous step (time selection)
+    // Back button - go to previous step (chat+date/time selection, or time-only when editing)
     backButtonBottom.addEventListener('click', () => {
-        renderScheduledMessageTimeSelection(chatName, date, time, existingMessage, editIndex);
+        if (editIndex !== null) {
+            renderScheduledMessageTimeSelection(chatName, date, time, existingMessage, editIndex);
+        } else {
+            renderScheduledMessageChatSelection(lastChatListForMessage, { preselectChat: chatName, preselectDate: date, preselectTime: time });
+        }
     });
 
     // Back to dashboard button handler
@@ -1169,6 +1220,7 @@ function renderDashboard(currentSchedules) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
     
+    waitingForChatListForMessage = false;
     existingScheduledChats = currentSchedules;
     
     // Get current WhatsApp connection status
@@ -1224,6 +1276,7 @@ function renderDashboard(currentSchedules) {
 
     // Add dashboard control listeners
     document.getElementById('add-scheduled-message-button').addEventListener('click', () => {
+        waitingForChatListForMessage = true;
         window.uiApi.sendData('ui:request-chat-list-for-message');
     });
 
@@ -1334,6 +1387,15 @@ function initializeIPCListeners() {
         updateWhatsAppStatus(status);
     });
 
+    // 9.5. Receive WhatsApp window visibility (for Settings toggle label)
+    window.uiApi.receiveCommand('main:whatsapp-window-visible', (visible) => {
+        const btn = document.getElementById('toggle-whatsapp-button');
+        if (btn) {
+            btn.textContent = visible ? t('hideWhatsApp') : t('showWhatsApp');
+            btn.title = btn.textContent;
+        }
+    });
+
     // 4. Receive FULL Setup Status from Main 
     window.uiApi.receiveCommand('main:setup-complete-status', (isComplete) => {
         if (isComplete) {
@@ -1370,7 +1432,7 @@ function initializeIPCListeners() {
 
     // 6.5. Receive the list of chats for scheduled message flow
     window.uiApi.receiveCommand('main:render-chat-list-for-message', (chatList) => {
-        // Complete the progress bar animation
+        // Complete the progress bar animation if we're on the loading screen
         if (window.chatListLoadingInterval) {
             clearInterval(window.chatListLoadingInterval);
             window.chatListLoadingInterval = null;
@@ -1384,7 +1446,11 @@ function initializeIPCListeners() {
             loadingText.textContent = 'Complete!';
         }
         
-        // Only show chat selection if user hasn't moved on (e.g. to date/time screen)
+        // Only show schedule message chat selection if we requested it (user clicked Schedule Message or Refresh in that flow). Prevents this screen from appearing when user is on Settings, Summary, or other screens.
+        if (!waitingForChatListForMessage) {
+            return;
+        }
+        waitingForChatListForMessage = false;
         setTimeout(() => {
             if (!document.getElementById('time-selection-container')) {
                 renderScheduledMessageChatSelection(chatList);
