@@ -9,16 +9,23 @@ const pusher = new Pusher({
 });
 
 module.exports = async function handler(req, res) {
-  // 1. הגדרות CORS - מאפשר לאתר שלך לגשת ל-API
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', 'https://summa-copy-2a158553.base44.app');
+  // במקום להגביל לדומיין אחד, נאפשר לכל דומיין זמני של base44 לגשת
+  const origin = req.headers.origin;
+
+  if (origin && origin.endsWith('.base44.app')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // למקרה שאתה בודק מ-localhost
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
   );
 
-  // טיפול בבקשת OPTIONS (בדיקת מקדימה של הדפדפן)
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
