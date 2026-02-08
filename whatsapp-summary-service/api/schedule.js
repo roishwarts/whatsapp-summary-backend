@@ -1,55 +1,56 @@
-// Schedule API: accept POST with schedule details and trigger Pusher event for Electron
-const Pusher = require('pusher');
+const Pusher = require("pusher");
 
 const pusher = new Pusher({
-    appId: process.env.PUSHER_APP_ID,
-    key: process.env.PUSHER_KEY,
-    secret: process.env.PUSHER_SECRET,
-    cluster: process.env.PUSHER_CLUSTER,
-    useTLS: true
+  appId: process.env.PUSHER_APP_ID,
+  key: process.env.PUSHER_KEY,
+  secret: process.env.PUSHER_SECRET,
+  cluster: process.env.PUSHER_CLUSTER,
+  useTLS: true,
 });
 
-module.exports = async (req, res) => {
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
-    }
+module.exports = async function handler(req, res) {
+  // 1. הגדרות CORS - מאפשר לאתר שלך לגשת ל-API
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', 'https://summa-copy-2a158553.base44.app');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
-    const { phoneNumber, contactName, date, time, message } = req.body || {};
-    const trimmed = {
-        phoneNumber: typeof phoneNumber === 'string' ? phoneNumber.trim() : '',
-        contactName: typeof contactName === 'string' ? contactName.trim() : '',
-        date: typeof date === 'string' ? date.trim() : '',
-        time: typeof time === 'string' ? time.trim() : '',
-        message: typeof message === 'string' ? message.trim() : ''
-    };
+  // טיפול בבקשת OPTIONS (בדיקת מקדימה של הדפדפן)
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
 
-    const missing = [];
-    if (!trimmed.phoneNumber) missing.push('phoneNumber');
-    if (!trimmed.contactName) missing.push('contactName');
-    if (!trimmed.date) missing.push('date');
-    if (!trimmed.time) missing.push('time');
-    if (!trimmed.message) missing.push('message');
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method Not Allowed" });
+  }
 
-    if (missing.length > 0) {
-        return res.status(400).json({ error: 'Missing required fields: ' + missing.join(', ') });
-    }
+  const { phoneNumber, contactName, date, time, message } = req.body;
 
-    const phoneDigits = trimmed.phoneNumber.replace(/\D/g, '');
-    const channelName = 'channel-' + phoneDigits;
-    if (channelName === 'channel-') {
-        return res.status(400).json({ error: 'Invalid phoneNumber' });
-    }
+  // בדיקת תקינות נתונים
+  if (!phoneNumber || !contactName || !date || !time || !message) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
 
-    try {
-        await pusher.trigger(channelName, 'new-schedule', {
-            contactName: trimmed.contactName,
-            date: trimmed.date,
-            time: trimmed.time,
-            message: trimmed.message
-        });
-        return res.status(200).json({ success: true });
-    } catch (err) {
-        console.error('[schedule] Pusher trigger error:', err.message);
-        return res.status(500).json({ error: err.message || 'Failed to trigger schedule event' });
-    }
+  try {
+    // ניקוי מספר הטלפון ליצירת שם ערוץ תקין
+    const cleanPhone = phoneNumber.replace(/\D/g, "");
+    const channelName = `channel-${cleanPhone}`;
+
+    // שליחת האירוע ל-Pusher
+    await pusher.trigger(channelName, "new-schedule", {
+      contactName,
+      date,
+      time,
+      message,
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("Pusher error:", err);
+    return res.status(500).json({ error: err.message });
+  }
 };
