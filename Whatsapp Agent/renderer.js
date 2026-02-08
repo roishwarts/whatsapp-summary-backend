@@ -13,6 +13,8 @@ let summaryFlowChatList = [];
 let lastChatListForMessage = [];
 /** True only while we requested the chat list for schedule-message flow and haven't received it yet. Prevents stray main:render-chat-list-for-message from overwriting other screens. */
 let waitingForChatListForMessage = false;
+/** True only while we requested the chat list for in-app question flow. */
+let waitingForChatListForQuestion = false;
 
 // --- i18n ---
 const TRANSLATIONS = {
@@ -101,6 +103,14 @@ const TRANSLATIONS = {
     confirmDeleteMessage: { en: 'Are you sure you want to delete the scheduled message to', he: 'האם אתה בטוח שברצונך למחוק את ההודעה המתוזמנת ל' },
     copiedToClipboard: { en: 'Copied to clipboard.', he: 'הועתק ללוח.' },
     copyFailed: { en: 'Copy failed.', he: 'ההעתקה נכשלה.' },
+    statusConnected: { en: 'Connected', he: 'מחובר' },
+    statusConnecting: { en: 'Connecting...', he: 'מתחבר...' },
+    statusDisconnected: { en: 'Disconnected', he: 'מנותק' },
+    askQuestion: { en: 'Ask a question', he: 'שאל שאלה' },
+    askQuestionAboutChat: { en: 'Ask a question about a chat', he: 'שאל שאלה על צ\'אט' },
+    chooseChatToAsk: { en: 'Choose a chat to ask about', he: 'בחר צ\'אט לשאול עליו' },
+    typeYourQuestion: { en: 'Type your question...', he: 'הקלד את השאלה שלך...' },
+    sendQuestion: { en: 'Send', he: 'שלח' },
     clickChatSendMessage: { en: 'Click on the chat you want to send a scheduled message to.', he: 'לחץ על הצ\'אט שאליו תרצה לשלוח הודעה מתוזמנת.' },
     clickChatSummarize: { en: 'Click on the chat you want to summarize.', he: 'לחץ על הצ\'אט שברצונך לסכם.' },
     selectSectionsSummary: { en: 'Select the sections to include in the summary. Leave all unchecked for full summary.', he: 'בחר את הסעיפים לכלול בסיכום. השאר הכל לא מסומן לסיכום מלא.' },
@@ -225,12 +235,21 @@ function renderOnboardingScreen() {
 
 
 // --- 3. UI Step - Delivery Configuration (UPDATED) ---
-// Helper function to update WhatsApp status indicator (dashboard LED only)
+// Helper: get status label for Settings screen
+function getWhatsAppStatusLabel(status) {
+    if (status === 'connected') return t('statusConnected');
+    if (status === 'disconnected') return t('statusDisconnected');
+    return t('statusConnecting');
+}
+// Update WhatsApp status indicator (dot + label in Settings when visible)
 function updateWhatsAppStatus(status) {
     const led = document.getElementById('status-led');
-    if (!led) return;
-    led.classList.remove('status-led-connected', 'status-led-connecting', 'status-led-disconnected');
-    led.classList.add(status === 'connected' ? 'status-led-connected' : (status === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting'));
+    if (led) {
+        led.classList.remove('status-led-connected', 'status-led-connecting', 'status-led-disconnected');
+        led.classList.add(status === 'connected' ? 'status-led-connected' : (status === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting'));
+    }
+    const label = document.getElementById('status-led-label');
+    if (label) label.textContent = getWhatsAppStatusLabel(status);
 }
 
 function applyTheme(theme) {
@@ -270,6 +289,10 @@ function renderDeliverySetup(isInitialSetup = true) {
                     <button type="button" id="lang-en-btn" class="theme-toggle-btn ${currentLang === 'en' ? 'active' : ''}" data-lang="en" style="padding: 8px 16px; border: none; background: ${currentLang === 'en' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('english')}</button>
                     <button type="button" id="lang-he-btn" class="theme-toggle-btn ${currentLang === 'he' ? 'active' : ''}" data-lang="he" style="padding: 8px 16px; border: none; background: ${currentLang === 'he' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('hebrew')}</button>
                 </div>
+            </div>
+            <div class="settings-status-row" style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <span id="status-led" class="status-led ${window.whatsappConnectionStatus === 'connected' ? 'status-led-connected' : (window.whatsappConnectionStatus === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting')}" aria-hidden="true"></span>
+                <span id="status-led-label" style="font-size: 14px; color: var(--secondary-color);">${getWhatsAppStatusLabel(window.whatsappConnectionStatus || 'connecting')}</span>
             </div>
             <div id="delivery-status-message" class="status-message" style="margin-top: 10px; color: red;"></div>
             <div class="settings-whatsapp-row">
@@ -989,6 +1012,160 @@ function renderSummaryChatSelection(chatList) {
     window.uiApi.sendData('ui:auto-hide-whatsapp');
 }
 
+// --- In-app Ask a question flow ---
+function renderQuestionChatSelection(chatList) {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+    waitingForChatListForMessage = false;
+    if (chatList === null) {
+        mainSetupDiv.innerHTML = `
+            <div class="chat-selection-header">
+                <h2>${t('askQuestionAboutChat')}</h2>
+                <div class="chat-selection-buttons">
+                    <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
+                    <button id="refresh-chat-list-question-btn" class="secondary-button">${t('refreshChats')}</button>
+                </div>
+            </div>
+            <p style="margin: 10px 0;">${t('chooseChatToAsk')}</p>
+            <div id="chat-list-container" class="chat-selection-container" style="max-height: 240px; overflow-y: auto; padding: 20px; text-align: center; color: var(--muted-color);">${t('loadingChats')}</div>
+            <button id="next-question-btn" class="primary-button" disabled style="margin-top: 16px;">${t('next')}</button>
+        `;
+        document.getElementById('refresh-chat-list-question-btn').addEventListener('click', () => {
+            waitingForChatListForQuestion = true;
+            window.uiApi.sendData('ui:refresh-chat-list-for-question');
+        });
+        document.getElementById('back-to-dashboard-btn').addEventListener('click', () => window.uiApi.sendData('ui:request-scheduled-messages'));
+        return;
+    }
+    if (!chatList || chatList.length === 0) {
+        mainSetupDiv.innerHTML = `
+            <div class="status-box card">
+                <div class="empty-state-icon" style="font-size: 56px; margin-bottom: 16px;">💬</div>
+                <h2>${t('noChatsFound')}</h2>
+                <p class="status-message">${t('ensureLoggedIn')}</p>
+                <div style="margin-top: 24px; display: flex; gap: 12px;">
+                    <button id="retry-question-chat-list" class="primary-button">${t('retryFindingChats')}</button>
+                    <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('retry-question-chat-list').addEventListener('click', () => {
+            waitingForChatListForQuestion = true;
+            window.uiApi.sendData('ui:refresh-chat-list-for-question');
+        });
+        document.getElementById('back-to-dashboard-btn').addEventListener('click', () => window.uiApi.sendData('ui:request-scheduled-messages'));
+        return;
+    }
+    mainSetupDiv.innerHTML = `
+        <div class="chat-selection-header">
+            <h2>${t('askQuestionAboutChat')}</h2>
+            <div class="chat-selection-buttons">
+                <button id="back-to-dashboard-btn" class="secondary-button">${t('backToDashboard')}</button>
+                <button id="refresh-chat-list-question-btn" class="secondary-button">${t('refreshChats')}</button>
+            </div>
+        </div>
+        <p style="margin: 10px 0;">${t('chooseChatToAsk')}</p>
+        <div style="margin: 15px 0;">
+            <input type="text" id="chat-search-input" placeholder="${t('searchChats')}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+        </div>
+        <div id="chat-list-container" class="chat-selection-container" style="max-height: 240px; overflow-y: auto;"></div>
+        <button id="next-question-btn" class="primary-button" disabled style="margin-top: 16px;">${t('next')}</button>
+    `;
+    const container = document.getElementById('chat-list-container');
+    const nextBtn = document.getElementById('next-question-btn');
+    const searchInput = document.getElementById('chat-search-input');
+    const allChats = [...chatList];
+    let selectedChatName = null;
+    function renderFiltered(filterText) {
+        container.innerHTML = '';
+        const lower = (filterText || '').toLowerCase().trim();
+        const filtered = lower ? allChats.filter(n => n.toLowerCase().includes(lower)) : allChats;
+        if (filtered.length === 0) {
+            container.innerHTML = `<p style="color: var(--muted-color); padding: 20px; text-align: center;">${t('noChatsMatchSearch')}</p>`;
+            return;
+        }
+        filtered.forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'chat-button' + (selectedChatName === name ? ' selected' : '');
+            btn.textContent = name;
+            btn.addEventListener('click', () => {
+                if (selectedChatName) document.querySelector(`#chat-list-container .chat-button.selected`)?.classList.remove('selected');
+                selectedChatName = name;
+                btn.classList.add('selected');
+                nextBtn.disabled = false;
+            });
+            container.appendChild(btn);
+        });
+    }
+    renderFiltered();
+    searchInput.addEventListener('input', (e) => renderFiltered(e.target.value));
+    nextBtn.addEventListener('click', () => {
+        if (selectedChatName) renderQuestionChat(selectedChatName);
+        else alert('Please select a chat.');
+    });
+    document.getElementById('refresh-chat-list-question-btn').addEventListener('click', () => {
+        waitingForChatListForQuestion = true;
+        window.uiApi.sendData('ui:refresh-chat-list-for-question');
+    });
+    document.getElementById('back-to-dashboard-btn').addEventListener('click', () => window.uiApi.sendData('ui:request-scheduled-messages'));
+}
+
+function renderQuestionChat(chatName) {
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (!mainSetupDiv) return;
+    const messages = [];
+    mainSetupDiv.innerHTML = `
+        <div class="chat-selection-header" style="margin-bottom: 12px;">
+            <h2 style="font-size: 1.1rem;">${t('askQuestion')}: ${chatName}</h2>
+            <div class="chat-selection-buttons">
+                <button id="question-back-btn" class="secondary-button">${t('backToDashboard')}</button>
+            </div>
+        </div>
+        <div id="question-chat-messages" style="flex: 1; min-height: 280px; max-height: 400px; overflow-y: auto; padding: 12px; background: var(--card-bg, #f5f5f5); border-radius: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 12px;"></div>
+        <div style="display: flex; gap: 8px; align-items: flex-end;">
+            <textarea id="question-input" placeholder="${t('typeYourQuestion')}" style="flex: 1; min-height: 44px; max-height: 120px; padding: 10px 14px; border: 1px solid var(--card-border, #ddd); border-radius: 10px; font-size: 14px; font-family: inherit; resize: none;" rows="1"></textarea>
+            <button id="question-send-btn" class="primary-button" style="flex-shrink: 0;">${t('sendQuestion')}</button>
+        </div>
+    `;
+    const messagesContainer = document.getElementById('question-chat-messages');
+    const inputEl = document.getElementById('question-input');
+    const sendBtn = document.getElementById('question-send-btn');
+
+    document.getElementById('question-back-btn').addEventListener('click', () => window.uiApi.sendData('ui:request-scheduled-messages'));
+
+    function appendMessage(role, content, isError = false) {
+        const div = document.createElement('div');
+        div.className = isError ? 'question-msg question-msg-error' : (role === 'user' ? 'question-msg question-msg-user' : 'question-msg question-msg-assistant');
+        div.textContent = content;
+        messagesContainer.appendChild(div);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    sendBtn.addEventListener('click', () => {
+        const question = (inputEl.value || '').trim();
+        if (!question) return;
+        inputEl.value = '';
+        appendMessage('user', question);
+        const loadingEl = document.createElement('div');
+        loadingEl.id = 'question-loading';
+        loadingEl.className = 'question-msg question-msg-assistant';
+        loadingEl.textContent = '...';
+        loadingEl.style.color = 'var(--muted-color)';
+        messagesContainer.appendChild(loadingEl);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        inputEl.disabled = true;
+        sendBtn.disabled = true;
+        window.uiApi.sendData('ui:ask-question-in-app', { chatName, question });
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendBtn.click();
+        }
+    });
+}
+
 function renderSummaryCategorySelection(chatName) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
@@ -1223,18 +1400,14 @@ function renderDashboard(currentSchedules) {
     waitingForChatListForMessage = false;
     existingScheduledChats = currentSchedules;
     
-    // Get current WhatsApp connection status
-    const whatsappStatus = window.whatsappConnectionStatus || 'connecting'; // 'connecting', 'connected', 'disconnected'
-
-    const statusLedClass = whatsappStatus === 'connected' ? 'status-led-connected' : (whatsappStatus === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting');
     mainSetupDiv.innerHTML = `
         <div class="dashboard-header">
             <div id="dashboard-controls" class="dashboard-controls-inline">
                 <button id="add-scheduled-message-button" class="primary-button"><span class="btn-icon">🕐</span> ${t('scheduleMessage')}</button>
                 <button id="summarize-chat-button" class="primary-button"><span class="btn-icon">✨</span> ${t('summarize')}</button>
+                <button id="ask-question-button" class="primary-button"><span class="btn-icon">❓</span> ${t('askQuestion')}</button>
             </div>
             <div class="dashboard-header-right">
-                <span id="status-led" class="status-led ${statusLedClass}" aria-hidden="true"></span>
                 <button id="settings-icon-button" class="settings-icon" title="${t('settings')}">⚙️</button>
             </div>
         </div>
@@ -1244,8 +1417,6 @@ function renderDashboard(currentSchedules) {
             <ul id="scheduled-messages-ul"></ul>
         </div>
     `;
-    
-    updateWhatsAppStatus(whatsappStatus);
 
     // Populate scheduled messages list (card + empty state)
     const messagesUl = document.getElementById('scheduled-messages-ul');
@@ -1282,6 +1453,12 @@ function renderDashboard(currentSchedules) {
 
     document.getElementById('summarize-chat-button').addEventListener('click', () => {
         window.uiApi.sendData('ui:request-chat-list-for-summary');
+    });
+
+    document.getElementById('ask-question-button').addEventListener('click', () => {
+        renderQuestionChatSelection(null);
+        waitingForChatListForQuestion = true;
+        window.uiApi.sendData('ui:request-chat-list-for-question');
     });
     
     document.getElementById('settings-icon-button').addEventListener('click', () => {
@@ -1469,7 +1646,6 @@ function initializeIPCListeners() {
         if (progressBar) progressBar.style.width = '100%';
         if (loadingText) loadingText.textContent = 'Complete!';
         setTimeout(() => {
-            // Don't overwrite when user is on summary options, loading, or result screen
             const onSummaryOptions = document.getElementById('generate-summary-btn');
             const onSummaryResult = document.getElementById('summary-result-content');
             const onSummaryLoading = document.getElementById('summary-progress-bar');
@@ -1477,6 +1653,39 @@ function initializeIPCListeners() {
                 renderSummaryChatSelection(chatList);
             }
         }, 0);
+    });
+
+    // 6.6b Receive chat list for in-app question flow (initial load, refresh, or fresh list after request)
+    window.uiApi.receiveCommand('main:render-chat-list-for-question', (chatList) => {
+        if (waitingForChatListForQuestion) waitingForChatListForQuestion = false;
+        const onQuestionScreen = !!document.getElementById('refresh-chat-list-question-btn');
+        if (onQuestionScreen && Array.isArray(chatList)) {
+            setTimeout(() => renderQuestionChatSelection(chatList), 0);
+        }
+    });
+
+    // 6.6c In-app Q&A: answer received from main
+    window.uiApi.receiveCommand('main:question-answer-in-app', (data) => {
+        const container = document.getElementById('question-chat-messages');
+        const loadingEl = document.getElementById('question-loading');
+        if (loadingEl) loadingEl.remove();
+        if (!container) return;
+        if (data.success && data.answer) {
+            const div = document.createElement('div');
+            div.className = 'question-msg question-msg-assistant';
+            div.textContent = data.answer;
+            container.appendChild(div);
+        } else {
+            const errDiv = document.createElement('div');
+            errDiv.className = 'question-msg question-msg-error';
+            errDiv.textContent = data.error || t('noSummaryGenerated');
+            container.appendChild(errDiv);
+        }
+        container.scrollTop = container.scrollHeight;
+        const input = document.getElementById('question-input');
+        const sendBtn = document.getElementById('question-send-btn');
+        if (input) input.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
     });
 
     // 6.7 Receive summary result (from UI-triggered or on-demand flow)

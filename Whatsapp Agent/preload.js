@@ -1290,11 +1290,19 @@ async function clickChat(chatName) {
             
             // Get the bounding rectangle for the element AFTER scrolling
             let rect = clickableElement.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) rect = chatRow.getBoundingClientRect();
             
-            // Verify element has dimensions (exists in DOM)
+            // When window is hidden, getBoundingClientRect() is often 0. Use programmatic click only and continue (same flow as Pusher).
             if (rect.width === 0 || rect.height === 0) {
-                console.error('Error: Chat row element is not visible (width or height is 0)');
-                return { success: false, error: 'Chat row element not visible' };
+                console.log('Chat row has zero size (window likely hidden). Using programmatic click only.');
+                try {
+                    clickableElement.click();
+                } catch (e) { /* ignore */ }
+                try {
+                    chatRow.click();
+                } catch (e) { /* ignore */ }
+                await new Promise(r => setTimeout(r, 2500));
+                return { success: true };
             }
             
             // Check viewport dimensions - if window is hidden, viewport might be 0
@@ -2175,10 +2183,68 @@ async function getMessages() {
     return messagesFromToday;
 }
 
-// Function 3.1: Get messages for question answering (uses all messages if no messages from today)
+// Lighter scroll for question flow: only load today's messages, minimal scroll into the past
+async function loadHistoryForQuestion() {
+    collectedMessages.clear();
+    await new Promise(r => setTimeout(r, 800));
+    const chatPanel = document.querySelector('[data-scrolltracepolicy="wa.web.conversation.messages"]') ||
+        document.querySelector('[aria-label*="רשימת הודעות"]') ||
+        document.querySelector('[aria-label*="Message list"]') ||
+        document.querySelector('[role="log"]');
+    if (!chatPanel) {
+        console.warn('[Question] Chat panel not found, collecting visible messages only.');
+        const messageElements = document.querySelectorAll('div[data-pre-plain-text]');
+        const today = new Date();
+        const todayDDMM = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}`;
+        messageElements.forEach(el => {
+            const messageData = extractMessageData(el, todayDDMM);
+            if (messageData) collectedMessages.set(messageData.dataAttr, messageData);
+        });
+        return;
+    }
+    const today = new Date();
+    const todayDDMM = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const messageElements = document.querySelectorAll('div[data-pre-plain-text]');
+    messageElements.forEach(el => {
+        const messageData = extractMessageData(el, todayDDMM);
+        if (messageData) collectedMessages.set(messageData.dataAttr, messageData);
+    });
+    let previousEarliestTodayTimestamp = getEarliestTodayTimestamp(collectedMessages, todayDDMM);
+    let earliestTimestampUnchangedCount = 0;
+    const MAX_SCROLLS = 4;
+    const REQUIRED_UNCHANGED = 1;
+    for (let scrollCount = 0; scrollCount < MAX_SCROLLS; scrollCount++) {
+        chatPanel.scrollTop = 0;
+        await new Promise(r => setTimeout(r, 1200));
+        const afterScroll = document.querySelectorAll('div[data-pre-plain-text]');
+        afterScroll.forEach(el => {
+            const messageData = extractMessageData(el, todayDDMM);
+            if (messageData) collectedMessages.set(messageData.dataAttr, messageData);
+        });
+        const currentEarliest = getEarliestTodayTimestamp(collectedMessages, todayDDMM);
+        const oldestDDMM = getOldestMessageDate();
+        if (oldestDDMM && isDateNotToday(oldestDDMM, todayDDMM)) {
+            console.log(`[Question] Reached messages before today (${oldestDDMM}). Stopping scroll.`);
+            break;
+        }
+        if (currentEarliest === previousEarliestTodayTimestamp) {
+            earliestTimestampUnchangedCount++;
+            if (earliestTimestampUnchangedCount >= REQUIRED_UNCHANGED) {
+                console.log(`[Question] Today's messages complete after ${scrollCount + 1} scrolls.`);
+                break;
+            }
+        } else {
+            earliestTimestampUnchangedCount = 0;
+            previousEarliestTodayTimestamp = currentEarliest;
+        }
+    }
+    const finalToday = Array.from(collectedMessages.values()).filter(m => m.isFromToday).length;
+    console.log(`[Question] Loaded ${collectedMessages.size} total, ${finalToday} from today (minimal scroll).`);
+}
+
+// Function 3.1: Get messages for question answering (uses today only with minimal scroll; fallback to all if no today)
 async function getMessagesForQuestion() {
-    // 1. First, scroll and load the full message history
-    await loadFullHistory();
+    await loadHistoryForQuestion();
     
     // 2. Use the collected messages (already extracted during scrolling)
     const allCollectedMessages = Array.from(collectedMessages.values());

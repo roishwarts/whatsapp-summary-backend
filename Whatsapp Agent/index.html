@@ -400,6 +400,33 @@
             50% { opacity: 0.6; }
         }
 
+        .question-msg {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .question-msg-user {
+            align-self: flex-end;
+            background: var(--primary-color, #25d366);
+            color: #fff;
+        }
+        .question-msg-assistant {
+            align-self: flex-start;
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--card-border, #e0e0e0);
+            color: var(--primary-text);
+        }
+        .question-msg-error {
+            align-self: flex-start;
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c00;
+        }
+
         .dashboard-header {
             display: flex;
             justify-content: space-between;

@@ -399,8 +399,10 @@ function extractChatNameFromQuestionText(text) {
     if (!text) return null;
     const normalized = text.trim();
 
-    // Hebrew question patterns
+    // Hebrew question patterns (order matters: more specific first)
     const hebrewQuestionPatterns = [
+        // "על מה הייתה השיחה בשיחה חיים רק פעם אחת אבל?" -> chat name = "חיים רק פעם אחת אבל"
+        /בשיחה\s+(.+?)\s*[?؟]\s*$/,
         /שאל\s+(?:את|על|ב)\s+(?:קבוצ[הת]\s+)?(.+?)(?:\s+מה|\s+איך|\s+מתי|\s+איפה|\s+למה|\s+מי|\s+היום|\s+אתמול|\?|$)/,
         /(?:מה|איך|מתי|איפה|למה|מי)\s+(?:קרה|אמר|כתב|שלח|היה|יש|היו)\s+(?:ב|ב-|בקבוצ[הת]|ב-קבוצ[הת])\s*(.+?)(?:\s+היום|\s+אתמול|\?|$)/,
         /(?:מה|איך|מתי|איפה|למה|מי)\s+(?:קרה|אמר|כתב|שלח|היה|יש|היו)\s+(?:עם|ל)\s+(.+?)(?:\s+היום|\s+אתמול|\?|$)/,
@@ -469,9 +471,16 @@ function extractQuestionFromText(text, chatName) {
             new RegExp(`^בשיחה\\s+עם\\s+${chatNameEscaped}\\s*,?\\s*`, 'gi'),
             ''
         );
+        // "על מה הייתה השיחה בשיחה חיים רק פעם אחת אבל?" -> remove " בשיחה X?" at end, keep "על מה הייתה השיחה"
+        question = question.replace(
+            new RegExp(`\\s*בשיחה\\s+${chatNameEscaped}\\s*[?؟]?\\s*$`, 'gi'),
+            ''
+        );
     } else {
         // Fallback: remove "בשיחה עם" + up to 2 words (but keep verb)
         question = question.replace(/^בשיחה\s+עם\s+[^\s]+(?:\s+[^\s]+)?\s*,?\s*/i, '');
+        // Fallback: remove trailing " בשיחה ...?" (multi-word chat name)
+        question = question.replace(/\s+בשיחה\s+.+?\s*[?؟]?\s*$/, '');
     }
     
     // Remove common question prefixes (English)
@@ -1810,13 +1819,14 @@ async function callVercelQuestionAPI(chatName, messages, question, sender) {
     console.log(`[Network] Sending question to Vercel for ${chatName}. Question: "${question}"`);
     console.log(`[Network] Payload check - chatName: "${chatName}", messages: ${Array.isArray(messages) ? messages.length : typeof messages}, question: "${question}"`);
     
-    // Validate payload before sending
-    if (!chatName || !messages || !Array.isArray(messages) || messages.length === 0 || !question) {
+    if (!chatName || !question) {
         const missing = [];
         if (!chatName) missing.push('chatName');
-        if (!messages || !Array.isArray(messages) || messages.length === 0) missing.push('messages');
         if (!question) missing.push('question');
         throw new Error(`Invalid payload - missing: ${missing.join(', ')}`);
+    }
+    if (!messages || !Array.isArray(messages)) {
+        throw new Error('Invalid payload - messages must be an array');
     }
 
     try {
@@ -2427,6 +2437,7 @@ async function processScheduledMessage(message) {
 
 /**
  * Process a question for a specific chat: open chat, extract messages, call API, send answer.
+ * Same workflow for Pusher (phone) and in-app: show WhatsApp window so preload can open chat and extract messages.
  */
 async function processQuestionForChat(chatName, question, sender) {
     try {
@@ -2444,8 +2455,15 @@ async function processQuestionForChat(chatName, question, sender) {
             whatsappWindow._pendingQuestion = {
                 chatName: chatName,
                 question: question,
-                sender: sender
+                sender: sender,
+                inAppOnly: false
             };
+
+            // Phone path: only show window if hidden so preload can open chat and extract messages
+            if (!whatsappWindow.isVisible()) {
+                whatsappWindow.show();
+                await new Promise(r => setTimeout(r, 2000));
+            }
 
             // Send command to open chat and extract messages
             if (whatsappWindow.webContents) {
@@ -2721,6 +2739,56 @@ ipcMain.on('ui:refresh-chat-list-for-summary', (event) => {
     }
 });
 
+ipcMain.on('ui:request-chat-list-for-question', (event) => {
+    // Use cached list only; do not show WhatsApp window so the user stays in the UI
+    const cached = store.get('cachedChatList') || [];
+    if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-question', cached);
+});
+
+ipcMain.on('ui:refresh-chat-list-for-question', async (event) => {
+    if (!isWhatsAppWindowAvailable()) {
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-question', []);
+        return;
+    }
+    if (whatsappWindow && whatsappWindow.webContents) {
+        whatsappWindow.webContents._isForScheduledMessage = false;
+        whatsappWindow.webContents._isForSummary = false;
+        whatsappWindow.webContents._isForQuestion = true;
+        whatsappWindow.webContents._isForCache = false;
+    }
+    try {
+        if (!whatsappWindow.isVisible()) {
+            whatsappWindow.show();
+            await new Promise(r => setTimeout(r, 1800));
+        }
+        whatsappWindow.webContents.send('app:request-chat-list');
+    } catch (error) {
+        console.error('[IPC] Error refreshing chat list for question:', error);
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-question', []);
+        if (whatsappWindow && whatsappWindow.webContents) whatsappWindow.webContents._isForQuestion = false;
+    }
+});
+
+ipcMain.on('ui:ask-question-in-app', async (event, { chatName, question }) => {
+    if (!chatName || !question) {
+        if (uiWindow) uiWindow.webContents.send('main:question-answer-in-app', { chatName, question, answer: null, success: false, error: 'Missing chat or question.' });
+        return;
+    }
+    const windowReady = await ensureWhatsAppWindowExists();
+    if (!windowReady || !isWhatsAppWindowAvailable() || !whatsappWindow) {
+        if (uiWindow) uiWindow.webContents.send('main:question-answer-in-app', { chatName, question, answer: null, success: false, error: 'WhatsApp window not available.' });
+        return;
+    }
+    whatsappWindow._pendingQuestion = { chatName, question, sender: null, inAppOnly: true };
+    try {
+        whatsappWindow.webContents.send('app:command-answer-question', { chatName, question });
+    } catch (err) {
+        console.error('[Question] In-app send failed:', err);
+        whatsappWindow._pendingQuestion = null;
+        if (uiWindow) uiWindow.webContents.send('main:question-answer-in-app', { chatName, question, answer: null, success: false, error: err.message });
+    }
+});
+
 ipcMain.on('ui:request-summary-from-ui', (event, payload) => {
     const { chatName, summaryComponents } = payload || {};
     if (!chatName) {
@@ -2843,9 +2911,11 @@ ipcMain.on('whatsapp:response-chat-list', (event, list) => {
     const isForCache = event.sender._isForCache;
     const isForScheduledMessage = event.sender._isForScheduledMessage;
     const isForSummary = event.sender._isForSummary;
+    const isForQuestion = event.sender._isForQuestion;
     event.sender._isForCache = false;
     event.sender._isForScheduledMessage = false;
     event.sender._isForSummary = false;
+    event.sender._isForQuestion = false;
     if (Array.isArray(list) && list.length > 0) {
         store.set('cachedChatList', list);
     }
@@ -2856,8 +2926,10 @@ ipcMain.on('whatsapp:response-chat-list', (event, list) => {
         if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-message', list || []);
     } else if (isForSummary) {
         if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-summary', list || []);
+    } else if (isForQuestion) {
+        if (uiWindow) uiWindow.webContents.send('main:render-chat-list-for-question', list || []);
+        if (whatsappWindow && !whatsappWindow.isDestroyed()) whatsappWindow.hide();
     }
-    // else: no flag set (e.g. race with cache request) — only cache updated above; do not send main:render-chat-list (deprecated Daily Brief screen)
 });
 
 ipcMain.on('whatsapp:chat-list-for-resolve', (event, list) => {
@@ -2947,9 +3019,9 @@ ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) 
     }
 });
 
-// Handler for question answering: receive messages, call API, send answer via WhatsApp
+// Handler for question answering: receive messages, call API, send answer via WhatsApp or to in-app UI
 ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question, messages }) => {
-    console.log(`[Question] Received ${messages.length} messages for question about "${chatName}"`);
+    console.log(`[Question] Received ${messages ? messages.length : 0} messages for question about "${chatName}"`);
     
     if (!whatsappWindow || !whatsappWindow._pendingQuestion) {
         console.warn('[Question] No pending question context found');
@@ -2958,24 +3030,16 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
 
     const pendingQuestion = whatsappWindow._pendingQuestion;
     delete whatsappWindow._pendingQuestion;
+    const inAppOnly = !!pendingQuestion.inAppOnly;
 
-    // Use question from pendingQuestion to ensure consistency
     const questionText = pendingQuestion.question || question;
 
-    // Debug logging
-    console.log(`[Question] Debug - chatName: "${chatName}", questionText: "${questionText}", messages count: ${messages ? messages.length : 'null'}`);
-    if (messages && messages.length > 0) {
-        console.log(`[Question] Debug - First message sample:`, JSON.stringify(messages[0]));
-    }
-
     try {
-        // Allow 0 messages - let the API handle it gracefully and return a helpful message
         if (!messages || messages.length === 0) {
             console.warn(`[Question] No messages found for chat "${chatName}". API will handle this gracefully.`);
         }
 
-        // Call Vercel API to get answer (server will send it back via Twilio)
-        const result = await callVercelQuestionAPI(chatName, messages, questionText, pendingQuestion.sender);
+        const result = await callVercelQuestionAPI(chatName, messages || [], questionText, pendingQuestion.sender);
         
         if (result.error) {
             throw new Error(result.answer || 'Failed to get answer from API');
@@ -2983,34 +3047,53 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
 
         const answer = result.answer;
         const deliveryStatus = result.deliveryStatus || {};
-        
-        if (deliveryStatus.whatsapp && deliveryStatus.whatsapp.includes('sent')) {
-            console.log(`[Question] ✅ Answer sent back to ${pendingQuestion.sender} via Twilio`);
-        } else if (deliveryStatus.whatsapp) {
-            console.warn(`[Question] ⚠️ WhatsApp delivery issue: ${deliveryStatus.whatsapp}`);
-        }
 
-        // Notify that question was answered
-        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
-            whatsappWindow.webContents.send('whatsapp:question-answered', {
-                chatName: chatName,
-                answer: answer,
-                success: true
-            });
+        if (inAppOnly) {
+            if (uiWindow && uiWindow.webContents) {
+                uiWindow.webContents.send('main:question-answer-in-app', { chatName, question: questionText, answer, success: true });
+            }
+            if (whatsappWindow && !whatsappWindow.isDestroyed()) {
+                whatsappWindow.hide();
+            }
+            if (uiWindow && !uiWindow.isDestroyed()) {
+                uiWindow.focus();
+            }
+        } else {
+            if (deliveryStatus.whatsapp && deliveryStatus.whatsapp.includes('sent')) {
+                console.log(`[Question] ✅ Answer sent back to ${pendingQuestion.sender} via WhatsApp`);
+            } else if (deliveryStatus.whatsapp) {
+                console.warn(`[Question] ⚠️ WhatsApp delivery issue: ${deliveryStatus.whatsapp}`);
+            }
+            if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+                whatsappWindow.webContents.send('whatsapp:question-answered', { chatName, answer, success: true });
+            }
         }
     } catch (error) {
         console.error('[Question] Error processing question:', error);
-        
-        // Notify about error
-        if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
-            whatsappWindow.webContents.send('whatsapp:question-answered', {
-                chatName: chatName,
-                answer: null,
-                success: false,
-                error: error.message
-            });
+        if (inAppOnly) {
+            if (uiWindow && uiWindow.webContents) {
+                uiWindow.webContents.send('main:question-answer-in-app', { chatName, question: questionText, answer: null, success: false, error: error.message });
+            }
+            if (whatsappWindow && !whatsappWindow.isDestroyed()) {
+                whatsappWindow.hide();
+            }
+            if (uiWindow && !uiWindow.isDestroyed()) {
+                uiWindow.focus();
+            }
+        } else if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
+            whatsappWindow.webContents.send('whatsapp:question-answered', { chatName, answer: null, success: false, error: error.message });
         }
     }
+});
+
+// Preload (WhatsApp window) sends this when opening chat or extracting messages fails
+ipcMain.on('whatsapp:question-answered', (event, { chatName, answer, success, error }) => {
+    if (success) return;
+    const pending = whatsappWindow && whatsappWindow._pendingQuestion;
+    if (pending && pending.inAppOnly && uiWindow && uiWindow.webContents) {
+        uiWindow.webContents.send('main:question-answer-in-app', { chatName, question: pending.question, answer: null, success: false, error: error || 'Failed to get messages.' });
+    }
+    if (whatsappWindow) delete whatsappWindow._pendingQuestion;
 });
 
 /**
