@@ -1,5 +1,6 @@
 const Pusher = require("pusher");
 
+// אתחול Pusher עם המשתנים מה-Environment
 const pusher = new Pusher({
   appId: process.env.PUSHER_APP_ID,
   key: process.env.PUSHER_KEY,
@@ -9,43 +10,41 @@ const pusher = new Pusher({
 });
 
 module.exports = async function handler(req, res) {
-  const origin = req.headers.origin;
-
-  // אבטחה: מאשר רק דומיינים של Base44 או localhost לבדיקות
-  if (origin && (origin.endsWith('.base44.app') || origin.includes('localhost'))) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
-
-  // טיפול בבקשת ה-Preflight (הבדיקה המקדימה של הדפדפן)
+  // טיפול ב-Preflight request של הדפדפן
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  // אימות שמדובר בבקשת POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   const { phoneNumber, contactName, date, time, message } = req.body;
 
+  // בדיקת תקינות בסיסית
   if (!phoneNumber || !contactName || !date || !time || !message) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   try {
+    // ניקוי מספר הטלפון ליצירת שם ערוץ (רק ספרות)
     const cleanPhone = phoneNumber.replace(/\D/g, "");
-    await pusher.trigger(`channel-${cleanPhone}`, "new-schedule", {
+    const channelName = `channel-${cleanPhone}`;
+
+    // שליחת האירוע ל-Pusher
+    await pusher.trigger(channelName, "new-schedule", {
       contactName,
       date,
       time,
       message,
     });
-    return res.status(200).json({ success: true });
+
+    console.log(`Event triggered for channel: ${channelName}`);
+    return res.status(200).json({ success: true, message: "Event sent to Pusher" });
+
   } catch (err) {
     console.error("Pusher Error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
 };
