@@ -1685,6 +1685,48 @@ function setupPusherListener() {
         });
 
         console.log('[Pusher] Listening on channel "whatsapp-channel", event "new-command".');
+
+        // Subscribe to user-specific channel for schedules from the website (same phone as in settings)
+        const phoneFromSettings = store.get('globalSettings.twilioWhatsAppNumber') || '';
+        const phoneDigits = String(phoneFromSettings).replace(/\D/g, '');
+        if (phoneDigits) {
+            const scheduleChannelName = 'channel-' + phoneDigits;
+            const scheduleChannel = pusherInstance.subscribe(scheduleChannelName);
+            scheduleChannel.bind('new-schedule', (data) => {
+                console.log('[Pusher] New schedule received from website:', data);
+                try {
+                    const { contactName, date, time, message } = data;
+                    if (!contactName || !date || !time || !message) {
+                        console.warn('[Pusher] new-schedule missing required fields:', data);
+                        return;
+                    }
+                    const existing = store.get('scheduledMessages') || [];
+                    const updated = [
+                        ...existing,
+                        {
+                            chatName: contactName,
+                            date,
+                            time,
+                            message,
+                            sent: false,
+                            sender: null
+                        }
+                    ];
+                    store.set('scheduledMessages', updated);
+                    updatePowerSaveBlocker();
+                    if (!automationInterval) startAutomationLoop();
+                    if (isUIWindowAvailable() && uiWindow && uiWindow.webContents) {
+                        uiWindow.webContents.send('main:render-scheduled-messages', updated.filter(m => !m.sent));
+                    }
+                    console.log('[Pusher] Scheduled message added from website for', contactName, 'at', date, time);
+                } catch (err) {
+                    console.error('[Pusher] Error handling new-schedule:', err);
+                }
+            });
+            console.log('[Pusher] Listening on channel "' + scheduleChannelName + '", event "new-schedule".');
+        } else {
+            console.log('[Pusher] No phone number in settings; skipping schedule channel subscription.');
+        }
     } catch (error) {
         console.error('[Pusher] Failed to initialize Pusher listener:', error);
     }
