@@ -46,6 +46,8 @@ let automationInterval = null;
 let chatQueue = [];
 let currentlyRunningChat = null;
 let pusherInstance = null;
+/** Phone digits we're subscribed to for schedule channel; avoids duplicate subscription. */
+let scheduleChannelSubscribedForDigits = null;
 let powerSaveBlockerId = null;
 const _pendingEditBySender = {};
 const _conversationStateBySender = {};
@@ -1657,6 +1659,56 @@ async function handleConversationStep(text, sender) {
 }
 
 /**
+ * Subscribe to the schedule channel (channel-<phoneDigits>) and bind 'new-schedule'.
+ * Safe to call multiple times; skips if already subscribed for the same digits.
+ * Call after Pusher is initialized and when phone number becomes available (e.g. on settings save or delayed retry).
+ */
+function subscribeScheduleChannel() {
+    if (!pusherInstance) return;
+    // Use recipient phone (saved in delivery settings); UI only saves recipientPhoneNumber, not twilioWhatsAppNumber
+    const phoneFromSettings = store.get('globalSettings.recipientPhoneNumber') || store.get('globalSettings.twilioWhatsAppNumber') || '';
+    const phoneDigits = String(phoneFromSettings).replace(/\D/g, '');
+    if (!phoneDigits) return;
+    if (scheduleChannelSubscribedForDigits === phoneDigits) return;
+
+    scheduleChannelSubscribedForDigits = phoneDigits;
+    const scheduleChannelName = 'channel-' + phoneDigits;
+    const scheduleChannel = pusherInstance.subscribe(scheduleChannelName);
+    scheduleChannel.bind('new-schedule', (data) => {
+        console.log('[Pusher] New schedule received from website:', data);
+        try {
+            const { contactName, date, time, message } = data;
+            if (!contactName || !date || !time || !message) {
+                console.warn('[Pusher] new-schedule missing required fields:', data);
+                return;
+            }
+            const existing = store.get('scheduledMessages') || [];
+            const updated = [
+                ...existing,
+                {
+                    chatName: contactName,
+                    date,
+                    time,
+                    message,
+                    sent: false,
+                    sender: null
+                }
+            ];
+            store.set('scheduledMessages', updated);
+            updatePowerSaveBlocker();
+            if (!automationInterval) startAutomationLoop();
+            if (isUIWindowAvailable() && uiWindow && uiWindow.webContents) {
+                uiWindow.webContents.send('main:render-scheduled-messages', updated.filter(m => !m.sent));
+            }
+            console.log('[Pusher] Scheduled message added from website for', contactName, 'at', date, time);
+        } catch (err) {
+            console.error('[Pusher] Error handling new-schedule:', err);
+        }
+    });
+    console.log('[Pusher] Listening on channel "' + scheduleChannelName + '", event "new-schedule".');
+}
+
+/**
  * Set up Pusher listener for real-time WhatsApp commands.
  * Starts once the app is ready.
  */
@@ -1687,45 +1739,10 @@ function setupPusherListener() {
         console.log('[Pusher] Listening on channel "whatsapp-channel", event "new-command".');
 
         // Subscribe to user-specific channel for schedules from the website (same phone as in settings)
-        const phoneFromSettings = store.get('globalSettings.twilioWhatsAppNumber') || '';
-        const phoneDigits = String(phoneFromSettings).replace(/\D/g, '');
-        if (phoneDigits) {
-            const scheduleChannelName = 'channel-' + phoneDigits;
-            const scheduleChannel = pusherInstance.subscribe(scheduleChannelName);
-            scheduleChannel.bind('new-schedule', (data) => {
-                console.log('[Pusher] New schedule received from website:', data);
-                try {
-                    const { contactName, date, time, message } = data;
-                    if (!contactName || !date || !time || !message) {
-                        console.warn('[Pusher] new-schedule missing required fields:', data);
-                        return;
-                    }
-                    const existing = store.get('scheduledMessages') || [];
-                    const updated = [
-                        ...existing,
-                        {
-                            chatName: contactName,
-                            date,
-                            time,
-                            message,
-                            sent: false,
-                            sender: null
-                        }
-                    ];
-                    store.set('scheduledMessages', updated);
-                    updatePowerSaveBlocker();
-                    if (!automationInterval) startAutomationLoop();
-                    if (isUIWindowAvailable() && uiWindow && uiWindow.webContents) {
-                        uiWindow.webContents.send('main:render-scheduled-messages', updated.filter(m => !m.sent));
-                    }
-                    console.log('[Pusher] Scheduled message added from website for', contactName, 'at', date, time);
-                } catch (err) {
-                    console.error('[Pusher] Error handling new-schedule:', err);
-                }
-            });
-            console.log('[Pusher] Listening on channel "' + scheduleChannelName + '", event "new-schedule".');
-        } else {
-            console.log('[Pusher] No phone number in settings; skipping schedule channel subscription.');
+        subscribeScheduleChannel();
+        if (!scheduleChannelSubscribedForDigits) {
+            console.log('[Pusher] No phone number in settings; will retry schedule channel subscription in 3s.');
+            setTimeout(() => subscribeScheduleChannel(), 3000);
         }
     } catch (error) {
         console.error('[Pusher] Failed to initialize Pusher listener:', error);
@@ -2611,7 +2628,9 @@ ipcMain.on('ui:save-delivery-settings', (event, settings) => {
     Object.keys(settings).forEach(key => store.set(`globalSettings.${key}`, settings[key]));
     store.set('globalSettings.isSetupComplete', true);
     event.sender.send('main:setup-complete-status', true);
-    event.sender.send('main:delivery-settings-saved'); 
+    event.sender.send('main:delivery-settings-saved');
+    // Subscribe to schedule channel when Twilio WhatsApp number is now set (or changed)
+    subscribeScheduleChannel();
 });
 
 ipcMain.on('ui:run-delivery-test', async () => {
@@ -3049,6 +3068,21 @@ ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) 
                 console.error('[Automation] Error sending status:', e);
             }
         }
+        // Notify website via Vercel → Pusher so the website can show "message sent"
+        const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
+        if (removedMsg && recipientPhone) {
+            fetch(`${VERCEL_API_BASE}/api/message-sent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phoneNumber: recipientPhone,
+                    contactName: chatName,
+                    date: removedMsg.date || '',
+                    time: removedMsg.time || '',
+                    success: true
+                })
+            }).catch(() => {});
+        }
     } else {
         console.error(`[Automation] Failed to send scheduled message to ${chatName}:`, error);
         if (isUIWindowAvailable()) {
@@ -3057,6 +3091,24 @@ ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) 
             } catch (e) {
                 console.error('[Automation] Error sending status:', e);
             }
+        }
+        // Notify website via Vercel → Pusher so the website can show "message failed"
+        const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
+        if (recipientPhone) {
+            const messages = store.get('scheduledMessages') || [];
+            const failedMsg = messages.find(m => m.chatName === chatName && !m.sent);
+            fetch(`${VERCEL_API_BASE}/api/message-sent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phoneNumber: recipientPhone,
+                    contactName: chatName,
+                    date: failedMsg ? (failedMsg.date || '') : '',
+                    time: failedMsg ? (failedMsg.time || '') : '',
+                    success: false,
+                    error: error || 'Unknown error'
+                })
+            }).catch(() => {});
         }
     }
 });
