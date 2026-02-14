@@ -1705,7 +1705,37 @@ function subscribeScheduleChannel() {
             console.error('[Pusher] Error handling new-schedule:', err);
         }
     });
-    console.log('[Pusher] Listening on channel "' + scheduleChannelName + '", event "new-schedule".');
+    scheduleChannel.bind('request-summary', (data) => {
+        console.log('[Pusher] Request summary received from website:', data);
+        try {
+            const { chatName, summaryComponents } = data || {};
+            if (!chatName) {
+                console.warn('[Pusher] request-summary missing chatName:', data);
+                return;
+            }
+            triggerSummaryWithOptions('website', chatName, summaryComponents && summaryComponents.length ? summaryComponents : null);
+            console.log('[Pusher] Triggered summary for', chatName, 'from website');
+        } catch (err) {
+            console.error('[Pusher] Error handling request-summary:', err);
+        }
+    });
+    scheduleChannel.bind('request-question', (data) => {
+        console.log('[Pusher] Request question received from website:', data);
+        try {
+            const { chatName, question } = data || {};
+            if (!chatName || !question) {
+                console.warn('[Pusher] request-question missing chatName or question:', data);
+                return;
+            }
+            processQuestionForChat(chatName, question, 'website').catch(err => {
+                console.error('[Pusher] Error processing question from website:', err);
+            });
+            console.log('[Pusher] Triggered question for', chatName, 'from website');
+        } catch (err) {
+            console.error('[Pusher] Error handling request-question:', err);
+        }
+    });
+    console.log('[Pusher] Listening on channel "' + scheduleChannelName + '", events "new-schedule", "request-summary", "request-question".');
 }
 
 /**
@@ -2515,7 +2545,7 @@ async function processQuestionForChat(chatName, question, sender) {
                 chatName: chatName,
                 question: question,
                 sender: sender,
-                inAppOnly: false
+                inAppOnly: sender === 'website'
             };
 
             // Phone path: only show window if hidden so preload can open chat and extract messages
@@ -3146,6 +3176,22 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
             if (uiWindow && uiWindow.webContents) {
                 uiWindow.webContents.send('main:question-answer-in-app', { chatName, question: questionText, answer, success: true });
             }
+            if (pendingQuestion.sender === 'website') {
+                const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
+                if (recipientPhone) {
+                    fetch(`${VERCEL_API_BASE}/api/question-result`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            phoneNumber: recipientPhone,
+                            chatName,
+                            question: questionText,
+                            answer: answer || '',
+                            success: true
+                        })
+                    }).catch(() => {});
+                }
+            }
             if (whatsappWindow && !whatsappWindow.isDestroyed()) {
                 whatsappWindow.hide();
             }
@@ -3164,6 +3210,23 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
         }
     } catch (error) {
         console.error('[Question] Error processing question:', error);
+        if (pendingQuestion.sender === 'website') {
+            const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
+            if (recipientPhone) {
+                fetch(`${VERCEL_API_BASE}/api/question-result`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phoneNumber: recipientPhone,
+                        chatName,
+                        question: questionText,
+                        answer: null,
+                        success: false,
+                        error: error.message || 'Unknown error'
+                    })
+                }).catch(() => {});
+            }
+        }
         if (inAppOnly) {
             if (uiWindow && uiWindow.webContents) {
                 uiWindow.webContents.send('main:question-answer-in-app', { chatName, question: questionText, answer: null, success: false, error: error.message });
@@ -3184,6 +3247,23 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
 ipcMain.on('whatsapp:question-answered', (event, { chatName, answer, success, error }) => {
     if (success) return;
     const pending = whatsappWindow && whatsappWindow._pendingQuestion;
+    if (pending && pending.sender === 'website') {
+        const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
+        if (recipientPhone) {
+            fetch(`${VERCEL_API_BASE}/api/question-result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phoneNumber: recipientPhone,
+                    chatName,
+                    question: pending.question || '',
+                    answer: null,
+                    success: false,
+                    error: error || 'Failed to get messages.'
+                })
+            }).catch(() => {});
+        }
+    }
     if (pending && pending.inAppOnly && uiWindow && uiWindow.webContents) {
         uiWindow.webContents.send('main:question-answer-in-app', { chatName, question: pending.question, answer: null, success: false, error: error || 'Failed to get messages.' });
     }
@@ -3226,9 +3306,27 @@ ipcMain.on('whatsapp:response-messages', async (event, messages) => {
     if (!messages || messages.length === 0) {
         console.log(`[Automation] No messages found for chat: ${currentlyRunningChat.name}`);
         
-        // Send notification to user if this is an on-demand summary (from Pusher command)
-        if (currentlyRunningChat.frequency === 'on-demand' && currentlyRunningChat._onDemandSender) {
+        // Send notification to user if this is an on-demand summary (from Pusher/WhatsApp, not website)
+        if (currentlyRunningChat.frequency === 'on-demand' && currentlyRunningChat._onDemandSender && currentlyRunningChat._onDemandSender !== 'website') {
             await sendNoMessagesNotification(currentlyRunningChat.name, currentlyRunningChat._onDemandSender);
+        }
+        
+        // When triggered from website, push result to website via Vercel → Pusher
+        if (currentlyRunningChat.frequency === 'on-demand' && currentlyRunningChat._onDemandSender === 'website') {
+            const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
+            if (recipientPhone) {
+                fetch(`${VERCEL_API_BASE}/api/summary-result`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phoneNumber: recipientPhone,
+                        chatName: currentlyRunningChat.name,
+                        summary: 'No messages found for the selected chat.',
+                        success: false,
+                        error: 'No messages'
+                    })
+                }).catch(() => {});
+            }
         }
         
         // When triggered from UI (no _onDemandSender), show summary screen with "no messages" message
@@ -3305,6 +3403,23 @@ ipcMain.on('whatsapp:response-messages', async (event, messages) => {
             });
         } catch (error) {
             console.error('[IPC] Error sending summary:', error);
+        }
+    }
+    // When triggered from website, push summary result to website via Vercel → Pusher
+    if (currentlyRunningChat._onDemandSender === 'website') {
+        const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
+        if (recipientPhone) {
+            fetch(`${VERCEL_API_BASE}/api/summary-result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phoneNumber: recipientPhone,
+                    chatName: currentlyRunningChat.name,
+                    summary: result.summary || '',
+                    success: !result.error,
+                    error: result.error ? (result.summary || result.message || 'Error') : null
+                })
+            }).catch(() => {});
         }
     }
     // Check if window still exists before scheduling next chat
