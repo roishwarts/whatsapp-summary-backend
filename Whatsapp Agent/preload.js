@@ -170,23 +170,36 @@ contextBridge.exposeInMainWorld('whatsappApi', {
 // Helper function to extract chat name from a row element.
 // Prefer the full name from the title attribute (so confirmations show full contact name and disambiguate same first names).
 function extractChatNameFromRow(row) {
-    // Prefer title attribute (full contact name in WhatsApp Web) so list has full names for confirmation
-    let nameElement = row.querySelector('div[role="gridcell"] span[title]');
-    if (!nameElement) nameElement = row.querySelector('div[role="gridcell"] div[title]');
-    if (!nameElement) nameElement = row.querySelector('span[title]');
-    if (!nameElement) nameElement = row.querySelector('div[title]');
-    if (nameElement) {
-        const fullName = (nameElement.getAttribute('title') || nameElement.textContent || '').trim();
-        if (fullName.length > 1) return fullName;
+    const all = extractAllChatNamesFromRow(row);
+    return all.length > 0 ? all[0] : null;
+}
+
+// Extract all chat names from a row (e.g. community name + group name for community rows).
+// WhatsApp shows community groups as: parent line "Build•Ship•Grow <🚀>", child line "BSG - Claude Code".
+// We need both so search by group name ("BSG - Claude Code") finds the row.
+function extractAllChatNamesFromRow(row) {
+    const seen = new Set();
+    const names = [];
+    function add(name) {
+        const t = (name || '').trim();
+        if (t.length > 1 && !seen.has(t)) {
+            seen.add(t);
+            names.push(t);
+        }
     }
-    // Fallback: first line of gridcell textContent (display name, may include emoji e.g. "דור ❤️")
+    // All elements with title in the row (can be multiple for community + group)
+    const withTitle = row.querySelectorAll('div[role="gridcell"] span[title], div[role="gridcell"] div[title], span[title], div[title]');
+    withTitle.forEach(el => {
+        const v = el.getAttribute('title') || el.textContent || '';
+        add(v);
+    });
+    // Gridcell lines (community on first line, group on second line)
     const gridcell = row.querySelector('div[role="gridcell"]');
     if (gridcell) {
         const cellText = (gridcell.textContent || '').trim();
-        const firstLine = cellText.split(/\r?\n/)[0].trim();
-        if (firstLine.length > 1) return firstLine;
+        cellText.split(/\r?\n/).forEach(line => add(line));
     }
-    return null;
+    return names;
 }
 
 // Function 1: Get all chat names from the sidebar (with scrolling to handle virtualization)
@@ -245,13 +258,10 @@ async function getChatList() {
     scrollableElement.scrollTop = 0;
     await new Promise(r => setTimeout(r, 800)); // Wait longer for initial render
     
-    // Collect initial visible chats
+    // Collect initial visible chats (include all names per row so community groups: community + group name)
     let chatRows = chatListContainer.querySelectorAll('[role="row"]');
     chatRows.forEach(row => {
-        const name = extractChatNameFromRow(row);
-        if (name) {
-            chatNamesSet.add(name);
-        }
+        extractAllChatNamesFromRow(row).forEach(name => chatNamesSet.add(name));
     });
     
     console.log(`Initial visible chats: ${chatNamesSet.size}`);
@@ -303,10 +313,7 @@ async function getChatList() {
             // Also collect any new chats that appeared
             chatRows = chatListContainer.querySelectorAll('[role="row"]');
             chatRows.forEach(row => {
-                const name = extractChatNameFromRow(row);
-                if (name) {
-                    chatNamesSet.add(name);
-                }
+                extractAllChatNamesFromRow(row).forEach(name => chatNamesSet.add(name));
             });
         }
         
@@ -339,11 +346,12 @@ async function getChatList() {
         let newChatsFound = 0;
         
         chatRows.forEach(row => {
-            const name = extractChatNameFromRow(row);
-            if (name && !chatNamesSet.has(name)) {
-                chatNamesSet.add(name);
-                newChatsFound++;
-            }
+            extractAllChatNamesFromRow(row).forEach(name => {
+                if (!chatNamesSet.has(name)) {
+                    chatNamesSet.add(name);
+                    newChatsFound++;
+                }
+            });
         });
         
         const currentCount = chatNamesSet.size;
@@ -397,11 +405,12 @@ async function getChatList() {
         chatRows = chatListContainer.querySelectorAll('[role="row"]');
         let finalNewChats = 0;
         chatRows.forEach(row => {
-            const name = extractChatNameFromRow(row);
-            if (name && !chatNamesSet.has(name)) {
-                chatNamesSet.add(name);
-                finalNewChats++;
-            }
+            extractAllChatNamesFromRow(row).forEach(name => {
+                if (!chatNamesSet.has(name)) {
+                    chatNamesSet.add(name);
+                    finalNewChats++;
+                }
+            });
         });
         
         if (finalNewChats > 0) {
@@ -421,11 +430,12 @@ async function getChatList() {
             chatRows = chatListContainer.querySelectorAll('[role="row"]');
             let bottomNewChats = 0;
             chatRows.forEach(row => {
-                const name = extractChatNameFromRow(row);
-                if (name && !chatNamesSet.has(name)) {
-                    chatNamesSet.add(name);
-                    bottomNewChats++;
-                }
+                extractAllChatNamesFromRow(row).forEach(name => {
+                    if (!chatNamesSet.has(name)) {
+                        chatNamesSet.add(name);
+                        bottomNewChats++;
+                    }
+                });
             });
             
             if (bottomNewChats > 0) {
@@ -468,10 +478,7 @@ async function getChatList() {
             // Collect chats after each scrollIntoView
             chatRows = chatListContainer.querySelectorAll('[role="row"]');
             chatRows.forEach(r => {
-                const name = extractChatNameFromRow(r);
-                if (name) {
-                    chatNamesSet.add(name);
-                }
+                extractAllChatNamesFromRow(r).forEach(name => chatNamesSet.add(name));
             });
             
             // Log progress every 20 rows
@@ -692,23 +699,10 @@ function findChatInMainList(chatName, chatListContainer) {
     const maxDebugLogs = 3;
     
     for (const row of chatRows) {
-        // Try multiple selectors to find the chat name element
-        let nameElement = row.querySelector('div[role="gridcell"] span[title]');
-        if (!nameElement) {
-            nameElement = row.querySelector('div[role="gridcell"] div[title]');
-        }
-        if (!nameElement) {
-            nameElement = row.querySelector('span[title]');
-        }
-        if (!nameElement) {
-            nameElement = row.querySelector('div[title]');
-        }
-        
-        if (nameElement) {
-            const scrapedTitle = nameElement.getAttribute('title') || nameElement.textContent || '';
-            const trimmedTitle = scrapedTitle.trim();
-            
-            // Debug: Log first few chat names
+        // Get all names in the row (community + group for community rows, so "BSG - Claude Code" is found)
+        const rowNames = extractAllChatNamesFromRow(row);
+        for (const trimmedTitle of rowNames) {
+            // Debug: Log first few chat names (from any row)
             if (debugChatNames.length < maxDebugLogs && trimmedTitle && !debugChatNames.includes(trimmedTitle)) {
                 debugChatNames.push(trimmedTitle);
             }
@@ -785,22 +779,9 @@ function findChatInSearchResults(chatName) {
     const maxDebugLogs = 10; // Log first 10 for debugging
     
     for (const row of chatRows) {
-        // Try multiple selectors to find the chat name element
-        let nameElement = row.querySelector('div[role="gridcell"] span[title]');
-        if (!nameElement) {
-            nameElement = row.querySelector('div[role="gridcell"] div[title]');
-        }
-        if (!nameElement) {
-            nameElement = row.querySelector('span[title]');
-        }
-        if (!nameElement) {
-            nameElement = row.querySelector('div[title]');
-        }
-        
-        if (nameElement) {
-            const scrapedTitle = nameElement.getAttribute('title') || nameElement.textContent || '';
-            const trimmedTitle = scrapedTitle.trim();
-            
+        // Get all names in the row (community + group for community rows)
+        const rowNames = extractAllChatNamesFromRow(row);
+        for (const trimmedTitle of rowNames) {
             // Debug: Log first few chat names found
             if (foundChatNames.length < maxDebugLogs && !foundChatNames.includes(trimmedTitle)) {
                 foundChatNames.push(trimmedTitle);
@@ -1114,11 +1095,11 @@ async function clickChat(chatName) {
                     allVisibleRows = Array.from(currentRows);
                     console.log(`New rows loaded: ${allVisibleRows.length} total rows now`);
                     
-                    // Check all new rows
+                    // Check all new rows (include all names per row for community groups)
                     for (let j = allVisibleRows.length - (currentRows.length - allVisibleRows.length); j < allVisibleRows.length; j++) {
                         const newRow = allVisibleRows[j];
-                        const name = extractChatNameFromRow(newRow);
-                        if (name) {
+                        const rowNames = extractAllChatNamesFromRow(newRow);
+                        for (const name of rowNames) {
                             const normalizedName = normalizeText(name);
                             const normalizedChatName = normalizeText(chatName);
                             if (normalizedName === normalizedChatName || 
@@ -1129,6 +1110,7 @@ async function clickChat(chatName) {
                                 break;
                             }
                         }
+                        if (chatRow) break;
                     }
                     if (chatRow) break;
                 }
