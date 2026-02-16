@@ -1426,6 +1426,7 @@ async function clickChat(chatName) {
             
             console.log('All click methods executed (native IPC, direct click, synthetic events)');
         }
+        }
         
         // Wait for conversation panel to load (with retries)
         // Give it some initial time to start loading
