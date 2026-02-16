@@ -70,30 +70,34 @@ function resolveChatName(partialName, list) {
     if (!partialName) return partialName;
     if (!list || !Array.isArray(list) || list.length === 0) return partialName;
     const p = partialName.trim();
-    const exact = list.find((name) => (name || '').trim() === p);
+    const pLower = p.toLowerCase();
+    const exact = list.find((name) => (name || '').trim().toLowerCase() === pLower);
     if (exact) return exact;
-    const startsWith = list.find((name) => (name || '').trim().indexOf(p) === 0);
+    const startsWith = list.find((name) => (name || '').trim().toLowerCase().indexOf(pLower) === 0);
     if (startsWith) return startsWith.trim();
     const includes = list.find((name) => {
         const t = (name || '').trim();
-        return t.includes(p) && containsAtWordBoundary(t, p);
+        const tLower = t.toLowerCase();
+        return tLower.includes(pLower) && containsAtWordBoundary(tLower, pLower);
     });
     if (includes) return includes.trim();
     return partialName;
 }
 
-/** Resolve chat name and return { resolved, found } where found=true if resolution succeeded. */
+/** Resolve chat name and return { resolved, found } where found=true if resolution succeeded. Case-insensitive (e.g. "BSG - claude code" matches "BSG - Claude Code"). */
 function resolveChatNameWithCheck(partialName, list) {
     if (!partialName) return { resolved: partialName, found: false };
     if (!list || !Array.isArray(list) || list.length === 0) return { resolved: partialName, found: false };
     const p = partialName.trim();
-    const exact = list.find((name) => (name || '').trim() === p);
+    const pLower = p.toLowerCase();
+    const exact = list.find((name) => (name || '').trim().toLowerCase() === pLower);
     if (exact) return { resolved: exact, found: true };
-    const startsWith = list.find((name) => (name || '').trim().indexOf(p) === 0);
+    const startsWith = list.find((name) => (name || '').trim().toLowerCase().indexOf(pLower) === 0);
     if (startsWith) return { resolved: startsWith.trim(), found: true };
     const includes = list.find((name) => {
         const t = (name || '').trim();
-        return t.includes(p) && containsAtWordBoundary(t, p);
+        const tLower = t.toLowerCase();
+        return tLower.includes(pLower) && containsAtWordBoundary(tLower, pLower);
     });
     if (includes) return { resolved: includes.trim(), found: true };
     return { resolved: partialName, found: false };

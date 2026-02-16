@@ -692,7 +692,9 @@ function findChatInMainList(chatName, chatListContainer) {
     const chatRows = chatListContainer.querySelectorAll('[role="row"]');
     
     const normalizedChatName = normalizeText(chatName);
+    const normalizedChatNameMatch = normalizeTextForMatch(chatName);
     const chatNameBase = normalizedChatName.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
+    const chatNameBaseMatch = chatNameBase.toLowerCase();
     
     // Debug: Log first few chat names found (only once per call to avoid spam)
     const debugChatNames = [];
@@ -708,44 +710,46 @@ function findChatInMainList(chatName, chatListContainer) {
             }
             
             const normalizedTitle = normalizeText(trimmedTitle);
+            const normalizedTitleMatch = normalizeTextForMatch(trimmedTitle);
             const titleBase = normalizedTitle.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
+            const titleBaseMatch = titleBase.toLowerCase();
             
-            // Try exact match first
-            if (trimmedTitle === chatName || normalizedTitle === normalizedChatName) {
+            // Try exact match first (case-insensitive so "BSG - claude code" matches "BSG - Claude Code")
+            if (normalizedTitleMatch === normalizedChatNameMatch) {
                 console.log(`Found chat "${chatName}" in main list (exact match: "${trimmedTitle}")`);
                 return row;
             }
             
-            // Try base match (without emojis/special chars) - both directions
-            if (chatNameBase && titleBase) {
-                if (titleBase === chatNameBase) {
+            // Try base match (without emojis/special chars) - both directions, case-insensitive
+            if (chatNameBaseMatch && titleBaseMatch) {
+                if (titleBaseMatch === chatNameBaseMatch) {
                     console.log(`Found chat "${chatName}" in main list (base exact match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (containsAtWordBoundary(titleBase, chatNameBase)) {
+                if (containsAtWordBoundary(titleBaseMatch, chatNameBaseMatch)) {
                     console.log(`Found chat "${chatName}" in main list (base contains match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (containsAtWordBoundary(chatNameBase, titleBase)) {
+                if (containsAtWordBoundary(chatNameBaseMatch, titleBaseMatch)) {
                     console.log(`Found chat "${chatName}" in main list (base reverse contains match: "${trimmedTitle}")`);
                     return row;
                 }
             }
             
-            // Try normalized contains match - both directions (word boundary to avoid "טל" matching "מיטל")
-            if (containsAtWordBoundary(normalizedTitle, normalizedChatName)) {
+            // Try normalized contains match - both directions, case-insensitive
+            if (containsAtWordBoundary(normalizedTitleMatch, normalizedChatNameMatch)) {
                 console.log(`Found chat "${chatName}" in main list (normalized contains match: "${trimmedTitle}")`);
                 return row;
             }
-            if (containsAtWordBoundary(normalizedChatName, normalizedTitle)) {
+            if (containsAtWordBoundary(normalizedChatNameMatch, normalizedTitleMatch)) {
                 console.log(`Found chat "${chatName}" in main list (normalized reverse contains match: "${trimmedTitle}")`);
                 return row;
             }
             
-            // Exact no-space match only (avoid substring: "טל" in "מיטלתומר")
-            if (normalizedChatName.length > 0 && normalizedTitle.length > 0) {
-                const chatNameNoSpace = normalizedChatName.replace(/\s/g, '');
-                const titleNoSpace = normalizedTitle.replace(/\s/g, '');
+            // Exact no-space match only, case-insensitive
+            if (normalizedChatNameMatch.length > 0 && normalizedTitleMatch.length > 0) {
+                const chatNameNoSpace = normalizedChatNameMatch.replace(/\s/g, '');
+                const titleNoSpace = normalizedTitleMatch.replace(/\s/g, '');
                 if (chatNameNoSpace === titleNoSpace) {
                     console.log(`Found chat "${chatName}" in main list (no-space exact match: "${trimmedTitle}")`);
                     return row;
@@ -771,7 +775,9 @@ function findChatInSearchResults(chatName) {
     const chatRows = chatListContainer.querySelectorAll('[role="row"]');
     
     const normalizedChatName = normalizeText(chatName);
+    const normalizedChatNameMatch = normalizeTextForMatch(chatName);
     const chatNameBase = normalizedChatName.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
+    const chatNameBaseMatch = chatNameBase.toLowerCase();
     
     console.log(`Searching through ${chatRows.length} chat rows for: ${chatName} (normalized: "${normalizedChatName}", base: "${chatNameBase}")`);
     
@@ -789,44 +795,45 @@ function findChatInSearchResults(chatName) {
             }
             
             const normalizedTitle = normalizeText(trimmedTitle);
+            const normalizedTitleMatch = normalizeTextForMatch(trimmedTitle);
             const titleBase = normalizedTitle.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
+            const titleBaseMatch = titleBase.toLowerCase();
             
-            // Try exact match first
-            if (trimmedTitle === chatName || normalizedTitle === normalizedChatName) {
+            // Try exact match first (case-insensitive)
+            if (normalizedTitleMatch === normalizedChatNameMatch) {
                 console.log(`Found chat "${chatName}" in search results (exact match: "${trimmedTitle}")`);
                 return row;
             }
             
-            // Try base match (without emojis/special chars) - both directions
-            if (chatNameBase && titleBase) {
-                if (titleBase === chatNameBase) {
+            // Try base match (without emojis/special chars) - both directions, case-insensitive
+            if (chatNameBaseMatch && titleBaseMatch) {
+                if (titleBaseMatch === chatNameBaseMatch) {
                     console.log(`Found chat "${chatName}" in search results (base exact match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (containsAtWordBoundary(titleBase, chatNameBase)) {
+                if (containsAtWordBoundary(titleBaseMatch, chatNameBaseMatch)) {
                     console.log(`Found chat "${chatName}" in search results (base contains match: "${trimmedTitle}")`);
                     return row;
                 }
-                if (containsAtWordBoundary(chatNameBase, titleBase)) {
+                if (containsAtWordBoundary(chatNameBaseMatch, titleBaseMatch)) {
                     console.log(`Found chat "${chatName}" in search results (base reverse contains match: "${trimmedTitle}")`);
                     return row;
                 }
             }
             
-            if (containsAtWordBoundary(normalizedTitle, normalizedChatName)) {
+            if (containsAtWordBoundary(normalizedTitleMatch, normalizedChatNameMatch)) {
                 console.log(`Found chat "${chatName}" in search results (normalized contains match: "${trimmedTitle}")`);
                 return row;
             }
-            if (containsAtWordBoundary(normalizedChatName, normalizedTitle)) {
+            if (containsAtWordBoundary(normalizedChatNameMatch, normalizedTitleMatch)) {
                 console.log(`Found chat "${chatName}" in search results (normalized reverse contains match: "${trimmedTitle}")`);
                 return row;
             }
             
-            // Try character-by-character comparison for Hebrew (handles encoding differences)
-            if (normalizedChatName.length > 0 && normalizedTitle.length > 0) {
-                // Remove all whitespace and compare
-                const chatNameNoSpace = normalizedChatName.replace(/\s/g, '');
-                const titleNoSpace = normalizedTitle.replace(/\s/g, '');
+            // No-space match, case-insensitive
+            if (normalizedChatNameMatch.length > 0 && normalizedTitleMatch.length > 0) {
+                const chatNameNoSpace = normalizedChatNameMatch.replace(/\s/g, '');
+                const titleNoSpace = normalizedTitleMatch.replace(/\s/g, '');
                 if (chatNameNoSpace === titleNoSpace || chatNameNoSpace.includes(titleNoSpace) || titleNoSpace.includes(chatNameNoSpace)) {
                     console.log(`Found chat "${chatName}" in search results (no-space match: "${trimmedTitle}")`);
                     return row;
@@ -854,11 +861,18 @@ function normalizeText(text) {
     return text.trim().replace(/\s+/g, ' ').normalize('NFKC');
 }
 
+// Case-insensitive version for chat name matching (e.g. "BSG - claude code" matches "BSG - Claude Code")
+function normalizeTextForMatch(text) {
+    return normalizeText(text).toLowerCase();
+}
+
 // Helper function to verify the correct chat is open by checking the header
 function verifyCorrectChatOpen(chatName) {
     const normalizedChatName = normalizeText(chatName);
+    const normalizedChatNameMatch = normalizeTextForMatch(chatName);
     // Remove emojis and special characters for more flexible matching
     const chatNameBase = normalizedChatName.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
+    const chatNameBaseMatch = chatNameBase.toLowerCase();
     
     // Try multiple selectors for the chat header/title
     const headerSelectors = [
@@ -881,7 +895,9 @@ function verifyCorrectChatOpen(chatName) {
         for (const el of headerElements) {
             const rawTitle = el.getAttribute('title') || el.textContent || '';
             const normalizedTitle = normalizeText(rawTitle);
+            const normalizedTitleMatch = normalizeTextForMatch(rawTitle);
             const titleBase = normalizedTitle.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
+            const titleBaseMatch = titleBase.toLowerCase();
             
             // Log for debugging (only log unique titles)
             if (rawTitle && !foundTitles.includes(rawTitle)) {
@@ -898,30 +914,30 @@ function verifyCorrectChatOpen(chatName) {
                 continue;
             }
             
-            // Try exact match first
-            if (normalizedTitle === normalizedChatName && normalizedChatName.length > 0) {
+            // Try exact match first (case-insensitive)
+            if (normalizedTitleMatch === normalizedChatNameMatch && normalizedChatNameMatch.length > 0) {
                 console.log(`Verified correct chat is open: ${chatName} (exact match: "${rawTitle}")`);
                 return true;
             }
             
-            // Try base match (without emojis/special chars) - require substantial match
-            if (chatNameBase && titleBase && chatNameBase.length >= 3 && titleBase.length >= 3) {
-                if (titleBase === chatNameBase) {
+            // Try base match (without emojis/special chars), case-insensitive
+            if (chatNameBaseMatch && titleBaseMatch && chatNameBaseMatch.length >= 3 && titleBaseMatch.length >= 3) {
+                if (titleBaseMatch === chatNameBaseMatch) {
                     console.log(`Verified correct chat is open: ${chatName} (base exact match: "${rawTitle}")`);
                     return true;
                 }
-                if (containsAtWordBoundary(titleBase, chatNameBase) && chatNameBase.length >= Math.min(3, chatNameBase.length)) {
+                if (containsAtWordBoundary(titleBaseMatch, chatNameBaseMatch) && chatNameBaseMatch.length >= Math.min(3, chatNameBaseMatch.length)) {
                     console.log(`Verified correct chat is open: ${chatName} (base contains match: "${rawTitle}")`);
                     return true;
                 }
             }
             
-            if (normalizedChatName.length >= 3 && normalizedTitle.length >= 3) {
-                if (containsAtWordBoundary(normalizedTitle, normalizedChatName)) {
+            if (normalizedChatNameMatch.length >= 3 && normalizedTitleMatch.length >= 3) {
+                if (containsAtWordBoundary(normalizedTitleMatch, normalizedChatNameMatch)) {
                     console.log(`Verified correct chat is open: ${chatName} (normalized contains match: "${rawTitle}")`);
                     return true;
                 }
-                if (containsAtWordBoundary(normalizedChatName, normalizedTitle) && Math.abs(normalizedChatName.length - normalizedTitle.length) <= 2) {
+                if (containsAtWordBoundary(normalizedChatNameMatch, normalizedTitleMatch) && Math.abs(normalizedChatNameMatch.length - normalizedTitleMatch.length) <= 2) {
                     console.log(`Verified correct chat is open: ${chatName} (normalized reverse match: "${rawTitle}")`);
                     return true;
                 }
@@ -933,10 +949,10 @@ function verifyCorrectChatOpen(chatName) {
         console.warn(`CTO DEBUG: Chat verification - Expected: "${chatName}" (normalized: "${normalizedChatName}", base: "${chatNameBase}")`);
         console.warn(`CTO DEBUG: Found titles: ${foundTitles.slice(0, 5).map(t => `"${t}"`).join(', ')}${foundTitles.length > 5 ? '...' : ''}`);
         for (const title of foundTitles) {
-            const normalizedTitle = normalizeText(title);
-            const titleBase = normalizedTitle.replace(/[^\w\s\u0590-\u05FF]/g, '').trim();
-            if (chatNameBase && titleBase && (containsAtWordBoundary(titleBase, chatNameBase) || containsAtWordBoundary(chatNameBase, titleBase))) {
-                console.log(`CTO DEBUG: Found potential match: "${title}" (base: "${titleBase}") contains chat name base: "${chatNameBase}"`);
+            const normalizedTitleMatch = normalizeTextForMatch(title);
+            const titleBaseMatch = normalizeText(title).replace(/[^\w\s\u0590-\u05FF]/g, '').trim().toLowerCase();
+            if (chatNameBaseMatch && titleBaseMatch && (containsAtWordBoundary(titleBaseMatch, chatNameBaseMatch) || containsAtWordBoundary(chatNameBaseMatch, titleBaseMatch))) {
+                console.log(`CTO DEBUG: Found potential match: "${title}" contains chat name base: "${chatNameBase}"`);
                 return true;
             }
         }
@@ -1095,16 +1111,16 @@ async function clickChat(chatName) {
                     allVisibleRows = Array.from(currentRows);
                     console.log(`New rows loaded: ${allVisibleRows.length} total rows now`);
                     
-                    // Check all new rows (include all names per row for community groups)
+                    // Check all new rows (include all names per row for community groups), case-insensitive
                     for (let j = allVisibleRows.length - (currentRows.length - allVisibleRows.length); j < allVisibleRows.length; j++) {
                         const newRow = allVisibleRows[j];
                         const rowNames = extractAllChatNamesFromRow(newRow);
+                        const normalizedChatNameMatch = normalizeTextForMatch(chatName);
                         for (const name of rowNames) {
-                            const normalizedName = normalizeText(name);
-                            const normalizedChatName = normalizeText(chatName);
-                            if (normalizedName === normalizedChatName || 
-                                containsAtWordBoundary(normalizedName, normalizedChatName) || 
-                                containsAtWordBoundary(normalizedChatName, normalizedName)) {
+                            const normalizedNameMatch = normalizeTextForMatch(name);
+                            if (normalizedNameMatch === normalizedChatNameMatch ||
+                                containsAtWordBoundary(normalizedNameMatch, normalizedChatNameMatch) ||
+                                containsAtWordBoundary(normalizedChatNameMatch, normalizedNameMatch)) {
                                 chatRow = newRow;
                                 console.log(`Found chat in newly loaded rows: "${name}"`);
                                 break;

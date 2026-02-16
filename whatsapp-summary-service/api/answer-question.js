@@ -22,43 +22,45 @@ CRITICAL RULES:
 - You MUST answer based ONLY on the information in the provided messages
 - Do NOT use any external knowledge or information not present in the messages
 - UNDERSTAND SEMANTIC MEANING: When the user asks about something, look for related concepts, synonyms, and semantic equivalents in the messages, not just exact word matches
-  - Example: If asked "Tell me about the projects", look for discussions about "initiatives", "tasks", "work items", "things we're working on", "plans", "ideas", etc.
-  - Example: If asked "What did they say about the meeting?", look for discussions about "get-together", "gathering", "appointment", "scheduled time", etc.
+  - Example: If asked about "practical tools" or "insights", look for: tools, tips, workflows, recommendations, links, resources, code, Claude, usage, best practices, examples, etc.
+  - Example: If asked "Tell me about the projects", look for "initiatives", "tasks", "work items", "plans", "ideas"
+  - Example: If asked "What did they say about the meeting?", look for "get-together", "gathering", "appointment", "scheduled time"
 - INTERPRET INTENT: Understand what the user is really asking for, even if they use different terminology than what appears in the messages
-- SYNTHESIZE INFORMATION: If the question asks for a summary or overview of a topic, provide a brief synthesis of all relevant information from the messages, even if it's spread across multiple messages
+- SYNTHESIZE INFORMATION: If the question asks for a summary, overview, tools, or insights, synthesize ALL relevant information from the conversation, even if it is spread across many messages or expressed in different words. Prefer giving a partial or tangential answer over saying "no relevant information".
+- ONLY say "no relevant information" when after reading the ENTIRE conversation there is genuinely nothing related (e.g. the chat never mentions the topic, tools, code, or similar). If there is any related discussion, summarize it.
 - Be concise and direct - answer the question directly without unnecessary elaboration
 - If multiple people mentioned something, you can reference who said what
 LANGUAGE (MANDATORY):
 ${languageRule}
-- ONLY if you truly cannot find ANY relevant information in the messages (even after semantic interpretation), then state:
+- ONLY if you truly cannot find ANY relevant information in the messages (even after semantic interpretation and reading the full conversation), then state:
   - Hebrew: "לא מצאתי מידע רלוונטי בשיחה. נסה לשאול שאלה ספציפית יותר."
   - English: "I couldn't find relevant information in the conversation. Try asking a more specific question."
 
-The messages are formatted as: [timestamp] sender: message text
+The next message contains the full conversation (each line: [timestamp] sender: message text). The message after that is the user's question. Answer based on the conversation.`;
 
-Answer the user's question now based on the messages provided, using semantic understanding to find relevant information even if the exact words differ.`;
-
-    // Format messages for the API
-    const messageHistory = messages.map(function(msg) {
-        const time = msg.time || "";
-        const sender = msg.sender || "Unknown";
-        const text = msg.text || "";
-        
-        const contentString = `[${time}] ${sender}: ${text}`;
-        return { role: "user", content: contentString };
-    });
-
-    // Add the question as the final message
+    // Format conversation as a single block so the model can use full context (avoid 50+ separate user turns)
+    const conversationBlock = messages
+        .map(function (msg) {
+            const time = msg.time || "";
+            const sender = msg.sender || "Unknown";
+            const text = (msg.text || "").trim();
+            return `[${time}] ${sender}: ${text}`;
+        })
+        .join("\n");
+    const conversationMessage = {
+        role: "user",
+        content: `CONVERSATION FROM CHAT "${chatName}":\n\n${conversationBlock}`
+    };
     const questionMessage = {
         role: "user",
-        content: `Question about ${chatName}: ${question}`
+        content: `QUESTION: ${question}`
     };
 
     const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
             { role: "system", content: context },
-            ...messageHistory,
+            conversationMessage,
             questionMessage
         ],
         temperature: 0.5, // Balanced temperature for factual but semantically flexible answers
