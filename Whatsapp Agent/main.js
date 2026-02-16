@@ -32,7 +32,7 @@ const store = new Store({
             emailUser: null,
             emailPass: null,
             theme: 'dark',
-            language: 'en',
+            language: 'he',
         },
         scheduledChats: [],
         scheduledMessages: [],
@@ -1870,7 +1870,8 @@ async function callVercelBackend(chatName, messages, recipientInfoOverride = nul
     const payload = {
         chatName: chatName,
         messages: messages,
-        recipientInfo: recipientInfo
+        recipientInfo: recipientInfo,
+        preferredLanguage: store.get('globalSettings.language') || 'he'
     };
     if (summaryComponents && summaryComponents.length > 0) {
         payload.summaryComponents = summaryComponents;
@@ -1902,7 +1903,8 @@ async function callVercelQuestionAPI(chatName, messages, question, sender) {
         chatName: chatName,
         messages: messages,
         question: question,
-        sender: sender // Send sender so server can send answer back via Twilio
+        sender: sender, // Send sender so server can send answer back via Twilio
+        preferredLanguage: store.get('globalSettings.language') || 'he'
     };
 
     console.log(`[Network] Sending question to Vercel for ${chatName}. Question: "${question}"`);

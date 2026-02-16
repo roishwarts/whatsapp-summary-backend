@@ -9,8 +9,13 @@ const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_A
 /**
  * Call OpenAI API to answer a question based on WhatsApp messages.
  * The answer is based ONLY on the provided messages - no external knowledge.
+ * preferredLanguage: 'he' (default) or 'en' - language for the answer.
  */
-async function callOpenAIQuestionAPI(messages, chatName, question) {
+async function callOpenAIQuestionAPI(messages, chatName, question, preferredLanguage) {
+    const answerInHebrew = preferredLanguage !== 'en';
+    const languageRule = answerInHebrew
+        ? `- You MUST answer entirely in Hebrew. Default language for the answer is Hebrew.`
+        : `- You MUST answer entirely in English.`;
     const context = `You are an intelligent assistant that answers questions based on the provided WhatsApp messages from a group chat.
 
 CRITICAL RULES:
@@ -23,7 +28,8 @@ CRITICAL RULES:
 - SYNTHESIZE INFORMATION: If the question asks for a summary or overview of a topic, provide a brief synthesis of all relevant information from the messages, even if it's spread across multiple messages
 - Be concise and direct - answer the question directly without unnecessary elaboration
 - If multiple people mentioned something, you can reference who said what
-- Preserve the language of the question (if asked in Hebrew, answer in Hebrew; if in English, answer in English)
+LANGUAGE (MANDATORY):
+${languageRule}
 - ONLY if you truly cannot find ANY relevant information in the messages (even after semantic interpretation), then state:
   - Hebrew: "לא מצאתי מידע רלוונטי בשיחה. נסה לשאול שאלה ספציפית יותר."
   - English: "I couldn't find relevant information in the conversation. Try asking a more specific question."
@@ -90,8 +96,9 @@ module.exports = async (req, res) => {
         return res.status(405).send('Method Not Allowed');
     }
 
-    // Get data sent from the Electron client
-    const { messages, chatName, question, sender } = req.body;
+    // Get data sent from the Electron client (preferredLanguage: 'he' | 'en', default Hebrew)
+    const { messages, chatName, question, sender, preferredLanguage } = req.body;
+    const responseLanguage = (preferredLanguage === 'en' ? 'en' : 'he');
 
     if (!chatName || !question) {
         return res.status(400).json({ 
@@ -110,15 +117,13 @@ module.exports = async (req, res) => {
         // Handle case where there are no messages
         let answer;
         if (!messages || messages.length === 0) {
-            // No messages available - return a helpful message
-            answer = 'לא מצאתי הודעות בקבוצה זו. נסה לשאול שאלה ספציפית יותר או לבדוק שהשם של הקבוצה נכון.';
-            // English fallback
-            if (question && /[a-zA-Z]/.test(question)) {
-                answer = 'I cannot find any messages in this chat. Please try asking a more specific question or verify the chat name is correct.';
-            }
+            // No messages available - return a helpful message in preferred language
+            answer = responseLanguage === 'he'
+                ? 'לא מצאתי הודעות בקבוצה זו. נסה לשאול שאלה ספציפית יותר או לבדוק שהשם של הקבוצה נכון.'
+                : 'I cannot find any messages in this chat. Please try asking a more specific question or verify the chat name is correct.';
         } else {
             // Generate answer based on messages
-            answer = await callOpenAIQuestionAPI(messages, chatName, question);
+            answer = await callOpenAIQuestionAPI(messages, chatName, question, responseLanguage);
         }
         
         // Send answer back via WhatsApp (same as daily brief)

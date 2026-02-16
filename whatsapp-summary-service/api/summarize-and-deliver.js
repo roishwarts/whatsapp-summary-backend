@@ -290,7 +290,8 @@ function filterSummaryByComponents(summary, summaryComponents) {
     return body ? `${firstSentence}\n\n${body}` : firstSentence;
 }
 
-async function callOpenAIChatAPI(messages, chatName, summaryComponents) {
+async function callOpenAIChatAPI(messages, chatName, summaryComponents, preferredLanguage) {
+    const langIsHebrew = preferredLanguage !== 'en';
     const selectiveConstraint = buildSelectiveConstraint(summaryComponents);
     const context = selectiveConstraint + `You are an assistant that creates a very short daily brief from busy WhatsApp group chats.
 
@@ -385,16 +386,11 @@ IMPORTANT UPDATES
 - Only include updates that add new information beyond what was covered in the overview
 
 LANGUAGE ENFORCEMENT (MANDATORY):
-- First, detect the primary language of the input messages.
-- IF the language is Hebrew:
-  - Output MUST be entirely in Hebrew.
-  - Use ONLY Hebrew section headers.
-  - Do NOT use any English words at all (including section titles).
-- IF the language is English:
-  - Output MUST be entirely in English.
-  - Use ONLY English section headers.
+${langIsHebrew
+    ? `- Output MUST be entirely in Hebrew. Use ONLY Hebrew section headers (תקציר, משימות, תאריכים, החלטות, עדכונים חשובים). Do NOT use any English words in the output.`
+    : `- Output MUST be entirely in English. Use ONLY English section headers (TL;DR, ACTION ITEMS, DATES, DECISIONS, IMPORTANT UPDATES).`}
 - Mixing languages is NOT allowed.
-- Outputting English when the input is Hebrew is a critical error.
+- Respect this language choice regardless of the input message language.
 
 CONTENT RULES:
 - Only include explicit, important information
@@ -477,8 +473,9 @@ module.exports = async (req, res) => {
         return res.status(405).send('Method Not Allowed');
     }
 
-    // Get data sent from the Electron client
-    const { messages, chatName, recipientInfo, summaryComponents } = req.body;
+    // Get data sent from the Electron client (preferredLanguage: 'he' | 'en', default Hebrew)
+    const { messages, chatName, recipientInfo, summaryComponents, preferredLanguage } = req.body;
+    const responseLanguage = (preferredLanguage === 'en' ? 'en' : 'he');
 
     if (!chatName || !recipientInfo) {
         return res.status(400).json({ error: 'Missing required data (chatName or recipientInfo).' });
@@ -488,12 +485,12 @@ module.exports = async (req, res) => {
     if (!messages || messages.length === 0) {
         console.log(`[Summarize] No messages found for chat: ${chatName}`);
         
-        const isHebrew = /[\u0590-\u05FF]/.test(chatName);
+        const useHebrew = responseLanguage === 'he';
         let noMessagesText;
         const componentMessage = buildNoMessagesTextForComponents(summaryComponents, chatName);
         if (componentMessage) {
             noMessagesText = componentMessage;
-        } else if (isHebrew) {
+        } else if (useHebrew) {
             noMessagesText = `לא נמצאו הודעות מהיום בשיחה "${chatName}".`;
         } else {
             noMessagesText = `No messages found from today in the chat "${chatName}".`;
@@ -518,7 +515,7 @@ module.exports = async (req, res) => {
 
     try {
         // 1. Generate Summary (with optional selective components)
-        let summary = await callOpenAIChatAPI(messages, chatName, summaryComponents);
+        let summary = await callOpenAIChatAPI(messages, chatName, summaryComponents, responseLanguage);
         if (summaryComponents && summaryComponents.length > 0) {
             summary = filterSummaryByComponents(summary, summaryComponents);
         }
