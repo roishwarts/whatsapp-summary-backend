@@ -673,8 +673,11 @@ async function sendMessage(messageText) {
 }
 
 // True if longStr contains shortStr at a word boundary (start, end, or after space/comma). Avoids "טל" matching "מיטל".
+// Require the shorter string to have length >= 4 so very short names (e.g. "דור") cannot match a long requested name.
+const CONTAINS_MATCH_MIN_LENGTH = 4;
 function containsAtWordBoundary(longStr, shortStr) {
     if (!longStr || !shortStr) return false;
+    if (Math.min(longStr.length, shortStr.length) < CONTAINS_MATCH_MIN_LENGTH) return false;
     const idx = longStr.indexOf(shortStr);
     if (idx === -1) return false;
     const atStart = idx === 0;
@@ -1290,7 +1293,7 @@ async function clickChat(chatName) {
             let rect = clickableElement.getBoundingClientRect();
             if (rect.width === 0 || rect.height === 0) rect = chatRow.getBoundingClientRect();
             
-            // When window is hidden, getBoundingClientRect() is often 0. Use programmatic click only and continue (same flow as Pusher).
+            // When window is hidden, getBoundingClientRect() is often 0. Use programmatic click only - we still verify correct chat below.
             if (rect.width === 0 || rect.height === 0) {
                 console.log('Chat row has zero size (window likely hidden). Using programmatic click only.');
                 try {
@@ -1300,8 +1303,8 @@ async function clickChat(chatName) {
                     chatRow.click();
                 } catch (e) { /* ignore */ }
                 await new Promise(r => setTimeout(r, 2500));
-                return { success: true };
-            }
+                // Fall through to wait for panel and verify - do NOT return success without verification
+            } else {
             
             // Check viewport dimensions - if window is hidden, viewport might be 0
             const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 800;
