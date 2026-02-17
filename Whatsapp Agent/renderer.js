@@ -116,6 +116,7 @@ const TRANSLATIONS = {
     selectSectionsSummary: { en: 'Select the sections to include in the summary. Leave all unchecked for full summary.', he: 'בחר את הסעיפים לכלול בסיכום. השאר הכל לא מסומן לסיכום מלא.' },
     showWhatsApp: { en: 'Show WhatsApp', he: 'הצג וואטסאפ' },
     hideWhatsApp: { en: 'Hide WhatsApp', he: 'הסתר וואטסאפ' },
+    status: { en: 'Status', he: 'סטטוס' },
 };
 let currentLanguage = 'en';
 
@@ -261,6 +262,32 @@ function getCurrentTheme() {
     return document.documentElement.getAttribute('data-theme') || 'dark';
 }
 
+/** Update all translated strings on the settings screen (so Hebrew/RTL works when language changes). */
+function updateSettingsScreenTranslations() {
+    const byId = (id) => document.getElementById(id);
+    const set = (id, text) => { const el = byId(id); if (el) el.textContent = text; };
+    set('settings-heading', t('settings'));
+    set('settings-enter-phone', t('enterPhone'));
+    set('settings-label-appearance', t('appearance'));
+    set('settings-label-language', t('language'));
+    set('settings-label-status', t('status'));
+    const lightBtn = byId('theme-light-btn');
+    const darkBtn = byId('theme-dark-btn');
+    if (lightBtn) lightBtn.textContent = t('light');
+    if (darkBtn) darkBtn.textContent = t('dark');
+    const enBtn = byId('lang-en-btn');
+    const heBtn = byId('lang-he-btn');
+    if (enBtn) enBtn.textContent = t('english');
+    if (heBtn) heBtn.textContent = t('hebrew');
+    const statusLabel = byId('status-led-label');
+    if (statusLabel) statusLabel.textContent = getWhatsAppStatusLabel(window.whatsappConnectionStatus || 'connecting');
+    const toggleBtn = byId('toggle-whatsapp-button');
+    if (toggleBtn) {
+        toggleBtn.textContent = window.whatsappWindowVisible ? t('hideWhatsApp') : t('showWhatsApp');
+        toggleBtn.title = toggleBtn.textContent;
+    }
+}
+
 function renderDeliverySetup(isInitialSetup = true) {
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
@@ -273,22 +300,25 @@ function renderDeliverySetup(isInitialSetup = true) {
     // Simplified delivery setup - phone number + Theme + Language + Show/Hide WhatsApp
     mainSetupDiv.innerHTML = `
         <div class="status-box">
-            <h2>${t('settings')}</h2>
-            <p>${t('enterPhone')}</p>
-            <input type="text" id="recipient-phone-number" placeholder="+972..." />
+            <h2 id="settings-heading">${t('settings')}</h2>
+            <p id="settings-enter-phone">${t('enterPhone')}</p>
+            <input type="text" id="recipient-phone-number" placeholder="+972..." dir="auto" />
             <div class="settings-theme-row" style="margin-top: 20px; margin-bottom: 12px;">
-                <label style="font-weight: 600; margin-right: 12px;">${t('appearance')}</label>
+                <label id="settings-label-appearance" style="font-weight: 600; margin-inline-end: 12px;">${t('appearance')}</label>
                 <div class="theme-toggle" style="display: inline-flex; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--secondary-border);">
                     <button type="button" id="theme-light-btn" class="theme-toggle-btn ${currentTheme === 'light' ? 'active' : ''}" data-theme="light" style="padding: 8px 16px; border: none; background: ${currentTheme === 'light' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('light')}</button>
                     <button type="button" id="theme-dark-btn" class="theme-toggle-btn ${currentTheme === 'dark' ? 'active' : ''}" data-theme="dark" style="padding: 8px 16px; border: none; background: ${currentTheme === 'dark' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('dark')}</button>
                 </div>
             </div>
             <div class="settings-theme-row" style="margin-bottom: 16px;">
-                <label style="font-weight: 600; margin-right: 12px;">${t('language')}</label>
+                <label id="settings-label-language" style="font-weight: 600; margin-inline-end: 12px;">${t('language')}</label>
                 <div class="theme-toggle" style="display: inline-flex; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--secondary-border);">
                     <button type="button" id="lang-en-btn" class="theme-toggle-btn ${currentLang === 'en' ? 'active' : ''}" data-lang="en" style="padding: 8px 16px; border: none; background: ${currentLang === 'en' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('english')}</button>
                     <button type="button" id="lang-he-btn" class="theme-toggle-btn ${currentLang === 'he' ? 'active' : ''}" data-lang="he" style="padding: 8px 16px; border: none; background: ${currentLang === 'he' ? 'var(--secondary-bg)' : 'transparent'}; color: var(--secondary-color); font-weight: 500; cursor: pointer;">${t('hebrew')}</button>
                 </div>
+            </div>
+            <div class="settings-theme-row" style="margin-bottom: 8px;">
+                <label id="settings-label-status" style="font-weight: 600; margin-inline-end: 12px;">${t('status')}</label>
             </div>
             <div class="settings-status-row" style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
                 <span id="status-led" class="status-led ${window.whatsappConnectionStatus === 'connected' ? 'status-led-connected' : (window.whatsappConnectionStatus === 'disconnected' ? 'status-led-disconnected' : 'status-led-connecting')}" aria-hidden="true"></span>
@@ -298,21 +328,10 @@ function renderDeliverySetup(isInitialSetup = true) {
             <div class="settings-whatsapp-row">
                 <button id="toggle-whatsapp-button" class="secondary-button" title="">${t('showWhatsApp')}</button>
             </div>
-            <div class="settings-actions" style="display: flex; gap: 10px; margin-top: 20px;">
-                <button id="back-to-dashboard-btn" class="secondary-button" style="flex: 1;">${t('backToDashboard')}</button>
-                <button id="save-delivery-settings-button" class="primary-button" style="flex: 2;">${t('saveSettings')}</button>
-            </div>
         </div>
     `;
     
-    const saveButton = document.getElementById('save-delivery-settings-button');
-    const statusMessage = document.getElementById('delivery-status-message');
-    const backButton = document.getElementById('back-to-dashboard-btn');
-
-    // Back button handler
-    backButton.addEventListener('click', () => {
-        renderDashboard(existingScheduledChats);
-    });
+    const phoneInput = document.getElementById('recipient-phone-number');
 
     const toggleWhatsAppBtn = document.getElementById('toggle-whatsapp-button');
     toggleWhatsAppBtn.addEventListener('click', () => {
@@ -346,25 +365,19 @@ function renderDeliverySetup(isInitialSetup = true) {
         if (langEnBtn) { langEnBtn.classList.toggle('active', lang === 'en'); langEnBtn.style.background = lang === 'en' ? 'var(--secondary-bg)' : 'transparent'; }
         if (langHeBtn) { langHeBtn.classList.toggle('active', lang === 'he'); langHeBtn.style.background = lang === 'he' ? 'var(--secondary-bg)' : 'transparent'; }
         window.uiApi.sendData('ui:save-language', lang);
+        updateSettingsScreenTranslations();
     }
     langEnBtn && langEnBtn.addEventListener('click', () => setLanguageActive('en'));
     langHeBtn && langHeBtn.addEventListener('click', () => setLanguageActive('he'));
     
-    // Load existing phone number if editing
+    // Load existing settings (phone, theme, language)
     if (!isInitialSetup) {
         window.uiApi.sendData('ui:request-delivery-settings');
     }
     
-    saveButton.addEventListener('click', () => {
-        // Collect only phone number
-        const recipientPhoneNumber = document.getElementById('recipient-phone-number').value.trim();
-        
-        if (!recipientPhoneNumber) {
-            alert(t('pleaseEnterPhone'));
-            return;
-        }
-
-        // Send simplified settings (only phone number, keep other fields empty/default)
+    // Auto-save phone number when user leaves the field (theme/language already save on click)
+    function sendPhoneSettings() {
+        const recipientPhoneNumber = (phoneInput && phoneInput.value) ? phoneInput.value.trim() : '';
         const settings = {
             twilioAccountSid: '',
             twilioAuthToken: '',
@@ -377,20 +390,16 @@ function renderDeliverySetup(isInitialSetup = true) {
             emailUser: '',
             emailPass: '',
         };
-
-        // Send data to main process
         window.uiApi.sendData('ui:save-delivery-settings', settings);
-        statusMessage.textContent = t('settingsSaved');
-        statusMessage.style.color = 'green';
-        
-        setTimeout(() => {
-            if (!isInitialSetup) {
-                renderDashboard(existingScheduledChats);
-            } else {
-                renderLoadingState();
-            }
-        }, 1000);
-    });
+    }
+    if (phoneInput) {
+        phoneInput.addEventListener('blur', sendPhoneSettings);
+        let phoneSaveTimeout;
+        phoneInput.addEventListener('input', () => {
+            clearTimeout(phoneSaveTimeout);
+            phoneSaveTimeout = setTimeout(sendPhoneSettings, 800);
+        });
+    }
 }
 
 // --- 4. UI Step - Chat Selection (Unchanged) ---
@@ -1509,23 +1518,18 @@ function initializeIPCListeners() {
         renderDeliverySetup(true);
     });
 
-    // 2. Confirmation that delivery settings were saved (used during Edit flow and Test)
+    // 2. Confirmation that delivery settings were saved (settings-only UI: stay on settings)
     window.uiApi.receiveCommand('main:delivery-settings-saved', () => {
         const statusMessageElement = document.getElementById('delivery-status-message');
-        const testButton = document.getElementById('test-delivery-button');
-        
-        // Show temporary success message
         if (statusMessageElement) {
             statusMessageElement.textContent = 'Settings saved successfully!';
+            statusMessageElement.style.color = 'green';
         }
-        
-        // If not running a test, navigate back to dashboard immediately
         if (!isTestRunning) {
-            setTimeout(() => { 
-                if (statusMessageElement) statusMessageElement.textContent = ''; // Clear message
-                window.uiApi.sendData('ui:request-scheduled-chats'); 
-            }, 1000); 
-        } 
+            setTimeout(() => {
+                if (statusMessageElement) statusMessageElement.textContent = '';
+            }, 2000);
+        }
     });
 
     // 3. Receive Delivery Settings (for pre-populating inputs when editing)
@@ -1546,6 +1550,7 @@ function initializeIPCListeners() {
         const langHeBtn = document.getElementById('lang-he-btn');
         if (langEnBtn) { langEnBtn.classList.toggle('active', lang === 'en'); langEnBtn.style.background = lang === 'en' ? 'var(--secondary-bg)' : 'transparent'; }
         if (langHeBtn) { langHeBtn.classList.toggle('active', lang === 'he'); langHeBtn.style.background = lang === 'he' ? 'var(--secondary-bg)' : 'transparent'; }
+        updateSettingsScreenTranslations();
     });
 
     // Theme (apply on load and when changed from settings)
@@ -1566,6 +1571,7 @@ function initializeIPCListeners() {
 
     // 9.5. Receive WhatsApp window visibility (for Settings toggle label)
     window.uiApi.receiveCommand('main:whatsapp-window-visible', (visible) => {
+        window.whatsappWindowVisible = !!visible;
         const btn = document.getElementById('toggle-whatsapp-button');
         if (btn) {
             btn.textContent = visible ? t('hideWhatsApp') : t('showWhatsApp');
@@ -1736,14 +1742,12 @@ function initializeIPCListeners() {
 }
 
 
-// --- Initial Load ---
+// --- Initial Load (Settings-only UI; dashboard/schedules live on the website) ---
 document.addEventListener('DOMContentLoaded', () => {
-    renderLoadingState();
     initializeIPCListeners();
-    
-    if (window.uiApi) {
-        window.uiApi.sendData('ui:request-setup-complete-status');
-        // Also request scheduled messages on load
-        window.uiApi.sendData('ui:request-scheduled-messages');
+    const mainSetupDiv = document.getElementById('main-setup-div');
+    if (mainSetupDiv && window.uiApi) {
+        renderDeliverySetup(false);
+        window.uiApi.sendData('ui:request-delivery-settings');
     }
 });
