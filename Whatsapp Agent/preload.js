@@ -672,6 +672,14 @@ async function sendMessage(messageText) {
     }
 }
 
+// Command words that indicate a row might contain a command/message preview rather than a chat name
+const COMMAND_WORDS = ['סכם', 'סיכום', 'שלח', 'שאל', 'תשאל', 'ask', 'summarize', 'summary', 'send', 'question'];
+function containsCommandWords(text) {
+    if (!text) return false;
+    const normalized = normalizeTextForMatch(text);
+    return COMMAND_WORDS.some(cmd => normalized.includes(normalizeTextForMatch(cmd)));
+}
+
 // True if longStr contains shortStr at a word boundary (start, end, or after space/comma). Avoids "טל" matching "מיטל".
 // Require the shorter string to have length >= 4 so very short names (e.g. "דור") cannot match a long requested name.
 const CONTAINS_MATCH_MIN_LENGTH = 4;
@@ -729,24 +737,50 @@ function findChatInMainList(chatName, chatListContainer) {
                     console.log(`Found chat "${chatName}" in main list (base exact match: "${trimmedTitle}")`);
                     return row;
                 }
+                // For contains matches, avoid rows that contain command words (likely message previews, not chat names)
+                // Also prefer matches where the row text isn't much longer than the chat name (ratio check)
+                const lengthRatio = Math.max(titleBaseMatch.length, chatNameBaseMatch.length) / Math.min(titleBaseMatch.length, chatNameBaseMatch.length);
+                const isLikelyCommand = containsCommandWords(trimmedTitle);
                 if (containsAtWordBoundary(titleBaseMatch, chatNameBaseMatch)) {
-                    console.log(`Found chat "${chatName}" in main list (base contains match: "${trimmedTitle}")`);
-                    return row;
+                    // Skip if row contains command words and is much longer than chat name (likely a message preview)
+                    if (isLikelyCommand && lengthRatio > 1.5) {
+                        console.log(`Skipping base contains match (row likely contains command: "${trimmedTitle}")`);
+                    } else {
+                        console.log(`Found chat "${chatName}" in main list (base contains match: "${trimmedTitle}")`);
+                        return row;
+                    }
                 }
                 if (containsAtWordBoundary(chatNameBaseMatch, titleBaseMatch)) {
-                    console.log(`Found chat "${chatName}" in main list (base reverse contains match: "${trimmedTitle}")`);
-                    return row;
+                    // Skip if row contains command words (likely a message preview)
+                    if (isLikelyCommand) {
+                        console.log(`Skipping base reverse contains match (row likely contains command: "${trimmedTitle}")`);
+                    } else {
+                        console.log(`Found chat "${chatName}" in main list (base reverse contains match: "${trimmedTitle}")`);
+                        return row;
+                    }
                 }
             }
             
             // Try normalized contains match - both directions, case-insensitive
+            const normalizedLengthRatio = Math.max(normalizedTitleMatch.length, normalizedChatNameMatch.length) / Math.min(normalizedTitleMatch.length, normalizedChatNameMatch.length);
+            const normalizedIsLikelyCommand = containsCommandWords(trimmedTitle);
             if (containsAtWordBoundary(normalizedTitleMatch, normalizedChatNameMatch)) {
-                console.log(`Found chat "${chatName}" in main list (normalized contains match: "${trimmedTitle}")`);
-                return row;
+                // Skip if row contains command words and is much longer than chat name
+                if (normalizedIsLikelyCommand && normalizedLengthRatio > 1.5) {
+                    console.log(`Skipping normalized contains match (row likely contains command: "${trimmedTitle}")`);
+                } else {
+                    console.log(`Found chat "${chatName}" in main list (normalized contains match: "${trimmedTitle}")`);
+                    return row;
+                }
             }
             if (containsAtWordBoundary(normalizedChatNameMatch, normalizedTitleMatch)) {
-                console.log(`Found chat "${chatName}" in main list (normalized reverse contains match: "${trimmedTitle}")`);
-                return row;
+                // Skip if row contains command words
+                if (normalizedIsLikelyCommand) {
+                    console.log(`Skipping normalized reverse contains match (row likely contains command: "${trimmedTitle}")`);
+                } else {
+                    console.log(`Found chat "${chatName}" in main list (normalized reverse contains match: "${trimmedTitle}")`);
+                    return row;
+                }
             }
             
             // Exact no-space match only, case-insensitive
@@ -814,23 +848,43 @@ function findChatInSearchResults(chatName) {
                     console.log(`Found chat "${chatName}" in search results (base exact match: "${trimmedTitle}")`);
                     return row;
                 }
+                const lengthRatio = Math.max(titleBaseMatch.length, chatNameBaseMatch.length) / Math.min(titleBaseMatch.length, chatNameBaseMatch.length);
+                const isLikelyCommand = containsCommandWords(trimmedTitle);
                 if (containsAtWordBoundary(titleBaseMatch, chatNameBaseMatch)) {
-                    console.log(`Found chat "${chatName}" in search results (base contains match: "${trimmedTitle}")`);
-                    return row;
+                    if (isLikelyCommand && lengthRatio > 1.5) {
+                        console.log(`Skipping base contains match in search (row likely contains command: "${trimmedTitle}")`);
+                    } else {
+                        console.log(`Found chat "${chatName}" in search results (base contains match: "${trimmedTitle}")`);
+                        return row;
+                    }
                 }
                 if (containsAtWordBoundary(chatNameBaseMatch, titleBaseMatch)) {
-                    console.log(`Found chat "${chatName}" in search results (base reverse contains match: "${trimmedTitle}")`);
-                    return row;
+                    if (isLikelyCommand) {
+                        console.log(`Skipping base reverse contains match in search (row likely contains command: "${trimmedTitle}")`);
+                    } else {
+                        console.log(`Found chat "${chatName}" in search results (base reverse contains match: "${trimmedTitle}")`);
+                        return row;
+                    }
                 }
             }
             
+            const normalizedLengthRatio = Math.max(normalizedTitleMatch.length, normalizedChatNameMatch.length) / Math.min(normalizedTitleMatch.length, normalizedChatNameMatch.length);
+            const normalizedIsLikelyCommand = containsCommandWords(trimmedTitle);
             if (containsAtWordBoundary(normalizedTitleMatch, normalizedChatNameMatch)) {
-                console.log(`Found chat "${chatName}" in search results (normalized contains match: "${trimmedTitle}")`);
-                return row;
+                if (normalizedIsLikelyCommand && normalizedLengthRatio > 1.5) {
+                    console.log(`Skipping normalized contains match in search (row likely contains command: "${trimmedTitle}")`);
+                } else {
+                    console.log(`Found chat "${chatName}" in search results (normalized contains match: "${trimmedTitle}")`);
+                    return row;
+                }
             }
             if (containsAtWordBoundary(normalizedChatNameMatch, normalizedTitleMatch)) {
-                console.log(`Found chat "${chatName}" in search results (normalized reverse contains match: "${trimmedTitle}")`);
-                return row;
+                if (normalizedIsLikelyCommand) {
+                    console.log(`Skipping normalized reverse contains match in search (row likely contains command: "${trimmedTitle}")`);
+                } else {
+                    console.log(`Found chat "${chatName}" in search results (normalized reverse contains match: "${trimmedTitle}")`);
+                    return row;
+                }
             }
             
             // No-space match, case-insensitive
@@ -1121,12 +1175,33 @@ async function clickChat(chatName) {
                         const normalizedChatNameMatch = normalizeTextForMatch(chatName);
                         for (const name of rowNames) {
                             const normalizedNameMatch = normalizeTextForMatch(name);
-                            if (normalizedNameMatch === normalizedChatNameMatch ||
-                                containsAtWordBoundary(normalizedNameMatch, normalizedChatNameMatch) ||
-                                containsAtWordBoundary(normalizedChatNameMatch, normalizedNameMatch)) {
+                            const isLikelyCommand = containsCommandWords(name);
+                            const nameLengthRatio = Math.max(normalizedNameMatch.length, normalizedChatNameMatch.length) / Math.min(normalizedNameMatch.length, normalizedChatNameMatch.length);
+                            
+                            if (normalizedNameMatch === normalizedChatNameMatch) {
+                                // Exact match always wins
                                 chatRow = newRow;
                                 console.log(`Found chat in newly loaded rows: "${name}"`);
                                 break;
+                            }
+                            // For contains matches, skip command-word rows
+                            if (containsAtWordBoundary(normalizedNameMatch, normalizedChatNameMatch)) {
+                                if (isLikelyCommand && nameLengthRatio > 1.5) {
+                                    console.log(`Skipping newly loaded row (likely contains command: "${name}")`);
+                                } else {
+                                    chatRow = newRow;
+                                    console.log(`Found chat in newly loaded rows: "${name}"`);
+                                    break;
+                                }
+                            }
+                            if (containsAtWordBoundary(normalizedChatNameMatch, normalizedNameMatch)) {
+                                if (isLikelyCommand) {
+                                    console.log(`Skipping newly loaded row (likely contains command: "${name}")`);
+                                } else {
+                                    chatRow = newRow;
+                                    console.log(`Found chat in newly loaded rows: "${name}"`);
+                                    break;
+                                }
                             }
                         }
                         if (chatRow) break;
@@ -1464,11 +1539,98 @@ async function clickChat(chatName) {
         // Verify the correct chat is open by checking the header
         await new Promise(r => setTimeout(r, 500)); // Wait for header to update
         
-        const correctChatOpen = verifyCorrectChatOpen(chatName);
+        let correctChatOpen = verifyCorrectChatOpen(chatName);
         if (!correctChatOpen) {
-            // Verification failed - the wrong chat is likely open
-            console.error(`Error: Could not verify chat header matches "${chatName}". Wrong chat may be open.`);
-            return { success: false, error: `Verification failed: Chat header does not match "${chatName}"` };
+            // Verification failed - the wrong chat may be open. Try to find the correct chat again.
+            console.warn(`Verification failed: Chat header does not match "${chatName}". Wrong chat may be open. Retrying to find correct chat...`);
+            
+            // Close the wrong chat and go back to chat list
+            const backButton = document.querySelector('button[aria-label="Back"], button[aria-label="חזרה"], span[data-icon="back"]');
+            if (backButton) {
+                backButton.click();
+                await new Promise(r => setTimeout(r, 1000));
+            }
+            
+            // Reset scroll and try finding the chat again (with improved matching that avoids command words)
+            chatListContainer = document.querySelector('[aria-label="רשימת צ\'אטים"], [aria-label="Chat list"]');
+            if (chatListContainer) {
+                chatListContainer.scrollTop = 0;
+                await new Promise(r => setTimeout(r, 500));
+                
+                // Try to find chat again (this time with improved matching that skips command-word rows)
+                let retryChatRow = findChatInMainList(chatName, chatListContainer);
+                
+                if (!retryChatRow) {
+                    // Try using search as a fallback
+                    console.log('Trying search as fallback to find correct chat...');
+                    const searchInput = document.querySelector('div[contenteditable="true"][data-tab="3"], div[contenteditable="true"][role="textbox"]');
+                    if (searchInput) {
+                        // Clear and set search
+                        searchInput.textContent = chatName;
+                        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        await new Promise(r => setTimeout(r, 1000));
+                        
+                        retryChatRow = findChatInSearchResults(chatName);
+                        
+                        // Clear search
+                        searchInput.textContent = '';
+                        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+                }
+                
+                if (retryChatRow) {
+                    console.log('Found correct chat on retry. Clicking...');
+                    // Click the correct chat
+                    const retryClickableElement = retryChatRow.querySelector(':scope > div:first-child') || retryChatRow;
+                    retryClickableElement.scrollIntoView({ behavior: 'auto', block: 'center' });
+                    await new Promise(r => setTimeout(r, 500));
+                    
+                    try {
+                        retryClickableElement.click();
+                    } catch (e) { /* ignore */ }
+                    try {
+                        retryChatRow.click();
+                    } catch (e) { /* ignore */ }
+                    ipcRenderer.send('whatsapp:request-native-click', { 
+                        x: retryClickableElement.getBoundingClientRect().left + retryClickableElement.getBoundingClientRect().width / 2,
+                        y: retryClickableElement.getBoundingClientRect().top + retryClickableElement.getBoundingClientRect().height / 2,
+                        name: chatName 
+                    });
+                    
+                    await new Promise(r => setTimeout(r, 2000));
+                    
+                    // Wait for panel and verify again
+                    let retryChecks = 0;
+                    let retryPanelLoaded = false;
+                    while (retryChecks < maxChecks && !retryPanelLoaded) {
+                        await new Promise(r => setTimeout(r, checkInterval));
+                        retryPanelLoaded = verifyChatPanelLoaded();
+                        retryChecks++;
+                        if (retryPanelLoaded) break;
+                    }
+                    
+                    if (retryPanelLoaded) {
+                        await new Promise(r => setTimeout(r, 500));
+                        correctChatOpen = verifyCorrectChatOpen(chatName);
+                        if (correctChatOpen) {
+                            console.log('Successfully opened correct chat on retry');
+                        } else {
+                            console.error(`Error: Still could not verify chat header matches "${chatName}" after retry.`);
+                            return { success: false, error: `Verification failed: Chat header does not match "${chatName}" after retry` };
+                        }
+                    } else {
+                        console.error(`Error: Chat panel did not load after retry.`);
+                        return { success: false, error: 'Chat panel did not load after retry' };
+                    }
+                } else {
+                    console.error(`Error: Could not find chat "${chatName}" on retry.`);
+                    return { success: false, error: `Verification failed: Chat header does not match "${chatName}" and could not find chat on retry` };
+                }
+            } else {
+                console.error(`Error: Could not verify chat header matches "${chatName}" and chat list container not found for retry.`);
+                return { success: false, error: `Verification failed: Chat header does not match "${chatName}"` };
+            }
         }
         
         // Additional wait to ensure panel is fully ready
