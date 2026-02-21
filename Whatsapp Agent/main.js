@@ -2554,8 +2554,9 @@ async function processQuestionForChat(chatName, question, sender) {
                 inAppOnly: sender === 'website'
             };
 
-            // Run in background: ensure window is hidden so it never steals focus (preload works when hidden)
+            // Run in background: hide window and prevent it from taking focus during automation
             try {
+                whatsappWindow.setFocusable(false); // Prevent window from stealing focus when it receives input
                 if (whatsappWindow.isVisible()) whatsappWindow.hide();
             } catch (e) { /* ignore */ }
 
@@ -3148,11 +3149,21 @@ ipcMain.on('whatsapp:message-sent', async (event, { chatName, success, error }) 
     }
 });
 
+// Helper: restore WhatsApp window focusability after background question flow
+function restoreWhatsAppWindowFocusability() {
+    try {
+        if (isWhatsAppWindowAvailable() && whatsappWindow && !whatsappWindow.isDestroyed()) {
+            whatsappWindow.setFocusable(true);
+        }
+    } catch (e) { /* ignore */ }
+}
+
 // Handler for question answering: receive messages, call API, send answer via WhatsApp or to in-app UI
 ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question, messages }) => {
     console.log(`[Question] Received ${messages ? messages.length : 0} messages for question about "${chatName}"`);
     
     if (!whatsappWindow || !whatsappWindow._pendingQuestion) {
+        restoreWhatsAppWindowFocusability();
         console.warn('[Question] No pending question context found');
         return;
     }
@@ -3245,12 +3256,15 @@ ipcMain.on('whatsapp:messages-for-question', async (event, { chatName, question,
         } else if (isWhatsAppWindowAvailable() && whatsappWindow && whatsappWindow.webContents) {
             whatsappWindow.webContents.send('whatsapp:question-answered', { chatName, answer: null, success: false, error: error.message });
         }
+    } finally {
+        restoreWhatsAppWindowFocusability();
     }
 });
 
 // Preload (WhatsApp window) sends this when opening chat or extracting messages fails
 ipcMain.on('whatsapp:question-answered', (event, { chatName, answer, success, error }) => {
     if (success) return;
+    restoreWhatsAppWindowFocusability();
     const pending = whatsappWindow && whatsappWindow._pendingQuestion;
     if (pending && pending.sender === 'website') {
         const recipientPhone = store.get('globalSettings.recipientPhoneNumber') || '';
