@@ -2554,7 +2554,11 @@ async function processQuestionForChat(chatName, question, sender) {
                 inAppOnly: sender === 'website'
             };
 
-            // Run in background: do not show or focus the WhatsApp window (preload can open chat and extract messages when window is hidden)
+            // Run in background: ensure window is hidden so it never steals focus (preload works when hidden)
+            try {
+                if (whatsappWindow.isVisible()) whatsappWindow.hide();
+            } catch (e) { /* ignore */ }
+
             // Send command to open chat and extract messages
             if (whatsappWindow.webContents) {
                 whatsappWindow.webContents.send('app:command-answer-question', {
