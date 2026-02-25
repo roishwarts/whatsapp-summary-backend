@@ -2554,10 +2554,10 @@ async function processQuestionForChat(chatName, question, sender) {
                 inAppOnly: sender === 'website'
             };
 
-            // Run in background: hide window and prevent it from taking focus during automation
+            // Run in background: always hide window and prevent it from taking focus during automation
             try {
                 whatsappWindow.setFocusable(false); // Prevent window from stealing focus when it receives input
-                if (whatsappWindow.isVisible()) whatsappWindow.hide();
+                whatsappWindow.hide(); // Always hide so WhatsApp screen is never visible when user asks a question
             } catch (e) { /* ignore */ }
 
             // Send command to open chat and extract messages

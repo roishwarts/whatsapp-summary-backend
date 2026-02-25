@@ -1400,9 +1400,14 @@ function renderScheduledMessageInput(chatName, date, time, existingMessage = nul
 }
 
 
-// --- 7. UI Step - Dashboard (Final State) (FIXED Edit button listener) ---
+// --- 7. UI Step - Dashboard (disabled: settings-only UI; dashboard never visible) ---
 
 function renderDashboard(currentSchedules) {
+    // Settings-only UI: never show dashboard; any call to renderDashboard shows settings instead
+    existingScheduledChats = currentSchedules || existingScheduledChats;
+    renderDeliverySetup(false);
+    if (window.uiApi) window.uiApi.sendData('ui:request-delivery-settings');
+    return;
     const mainSetupDiv = document.getElementById('main-setup-div');
     if (!mainSetupDiv) return;
     
@@ -1579,38 +1584,35 @@ function initializeIPCListeners() {
         }
     });
 
-    // 4. Receive FULL Setup Status from Main 
+    // 4. Receive FULL Setup Status from Main (settings-only UI: never request dashboard data)
     window.uiApi.receiveCommand('main:setup-complete-status', (isComplete) => {
         if (isComplete) {
-            window.uiApi.sendData('ui:request-scheduled-chats');
+            // Do not request scheduled chats/messages - stay on settings only
         } else {
             // First launch - show onboarding screen instead of API key
             renderOnboardingScreen();
         }
     });
     
-    // 5. Receive the existing scheduled chats (for dashboard rendering)
+    // 5. Receive the existing scheduled chats (settings-only UI: do not request messages or show dashboard)
     window.uiApi.receiveCommand('main:render-scheduled-chats', (chats) => {
-        existingScheduledChats = chats;
-        // Also request scheduled messages to render both
-        window.uiApi.sendData('ui:request-scheduled-messages');
+        existingScheduledChats = chats || [];
+        // Do not request scheduled messages or render dashboard - stay on settings only
     });
     
-    // 5.5. Receive the existing scheduled messages (for dashboard rendering)
+    // 5.5. Receive the existing scheduled messages (settings-only UI: do not show dashboard)
     window.uiApi.receiveCommand('main:render-scheduled-messages', (messages) => {
         existingScheduledMessages = messages || [];
-        // Re-render dashboard with both chats and messages
-        renderDashboard(existingScheduledChats);
+        // Do not render dashboard - keep user on settings screen only
     });
 
-    // 6. main:render-chat-list is deprecated (was "Select Chats for Daily Brief"). Do not navigate to that screen.
+    // 6. main:render-chat-list is deprecated (settings-only UI: do not request or show dashboard)
     window.uiApi.receiveCommand('main:render-chat-list', () => {
         if (window.chatListLoadingInterval) {
             clearInterval(window.chatListLoadingInterval);
             window.chatListLoadingInterval = null;
         }
-        // Stay on current screen; optionally ensure dashboard is shown
-        window.uiApi.sendData('ui:request-scheduled-messages');
+        // Do not request scheduled messages - stay on settings only
     });
 
     // 6.5. Receive the list of chats for scheduled message flow
