@@ -1672,35 +1672,24 @@ function initializeIPCListeners() {
         }
     });
 
-    // 6.6c In-app Q&A: answer received from main
-    window.uiApi.receiveCommand('main:question-answer-in-app', (data) => {
-        const container = document.getElementById('question-chat-messages');
+    // 6.6c In-app Q&A: answer received — do not display in Electron; answer is sent to Pusher only
+    window.uiApi.receiveCommand('main:question-answer-in-app', () => {
         const loadingEl = document.getElementById('question-loading');
         if (loadingEl) loadingEl.remove();
-        if (!container) return;
-        if (data.success && data.answer) {
-            const div = document.createElement('div');
-            div.className = 'question-msg question-msg-assistant';
-            div.textContent = data.answer;
-            container.appendChild(div);
-        } else {
-            const errDiv = document.createElement('div');
-            errDiv.className = 'question-msg question-msg-error';
-            errDiv.textContent = data.error || t('noSummaryGenerated');
-            container.appendChild(errDiv);
-        }
-        container.scrollTop = container.scrollHeight;
         const input = document.getElementById('question-input');
         const sendBtn = document.getElementById('question-send-btn');
         if (input) input.disabled = false;
         if (sendBtn) sendBtn.disabled = false;
+        // Do not append answer or error to UI; keep current screen
     });
 
-    // 6.7 Receive summary result (from UI-triggered or on-demand flow)
-    window.uiApi.receiveCommand('main:render-summary', (data) => {
-        const summary = data && data.summary != null ? data.summary : '';
-        const chatName = (data && data.chatName) || '';
-        renderSummaryResult(summary, chatName);
+    // 6.7 Receive summary result — do not display in Electron; summary is sent to Pusher only
+    window.uiApi.receiveCommand('main:render-summary', () => {
+        if (window._summaryLoadingInterval) {
+            clearInterval(window._summaryLoadingInterval);
+            window._summaryLoadingInterval = null;
+        }
+        // Do not call renderSummaryResult; keep current screen (e.g. settings)
     });
 
     // 7. Automation status updates (for dashboard and test run feedback)
