@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "WhatsApp Assistant - schedule messages, summaries and questions",
   "main": "main.js",
   "scripts": {
